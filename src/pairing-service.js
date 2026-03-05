@@ -12,6 +12,14 @@ const WAITING_KARMA_DEFAULTS = {
   durationInfluence: 0,
 };
 
+const PAIRING_SAMPLING_DEFAULTS = {
+  scoreSpreadTemperatureDivisor: 8,
+  scoreTemperatureFloor: 1,
+  interTeamEloScale: 140,
+  interTeamEloStrength: 1,
+  minCandidateWeight: 1e-12,
+};
+
 let lastSuggestion = null;
 
 function getSeasonElo(playerName) {
@@ -317,6 +325,18 @@ function generatePairings(activePlayers) {
   return pairings;
 }
 
+function getPairingEloDiffs(teamA, teamB, eloMap) {
+  const eloA0 = eloMap[teamA[0]];
+  const eloA1 = eloMap[teamA[1]];
+  const eloB0 = eloMap[teamB[0]];
+  const eloB1 = eloMap[teamB[1]];
+
+  const intraDiff = Math.abs(eloA0 - eloA1) + Math.abs(eloB0 - eloB1);
+  const interDiff = Math.abs((eloA0 + eloA1) / 2 - (eloB0 + eloB1) / 2);
+
+  return { intraDiff, interDiff };
+}
+
 function scorePairing(p, data) {
   const {
     playsCount,
@@ -351,11 +371,7 @@ function scorePairing(p, data) {
   let oppRepHist = 0;
   teamA.forEach(a => teamB.forEach(b => { oppRepHist += countsHistoric.againstCount[a][b]; }));
 
-  const eloA0 = eloMap[teamA[0]], eloA1 = eloMap[teamA[1]];
-  const eloB0 = eloMap[teamB[0]], eloB1 = eloMap[teamB[1]];
-
-  const intraDiff = Math.abs(eloA0 - eloA1) + Math.abs(eloB0 - eloB1);
-  const interDiff = Math.abs((eloA0 + eloA1) / 2 - (eloB0 + eloB1) / 2);
+  const { intraDiff, interDiff } = getPairingEloDiffs(teamA, teamB, eloMap);
 
   const karmaSum = [...teamA, ...teamB].reduce((sum, player) => sum + (waitingKarmaMap[player] || 0), 0);
 
@@ -371,11 +387,79 @@ function scorePairing(p, data) {
   // console.log(`  Teammate repeats - session: ${repSess}, historic: ${repHist}`);
   // console.log(`  Opponent repeats - session: ${oppRepSess}, historic: ${
   // oppRepHist}`);
-  // console.log(`  Elo A: ${eloA0}, ${eloA1}; Elo B: ${eloB0}, ${eloB1}`);
-  // console.log(`  Intra-team Elo diff: ${Math.abs(eloA0 - eloA1)} + ${Math.abs(eloB0 - eloB1)} = ${Math.abs(eloA0 - eloA1) + Math.abs(eloB0 - eloB1)}`);
-  // console.log(`  Inter-team Elo diff: |${(eloA0 + eloA1) / 2} - ${(eloB0 + eloB1) / 2}| = ${Math.abs((eloA0 + eloA1) / 2 - (eloB0 + eloB1) / 2)}`);
+  // console.log(`  Intra-team Elo diff: ${intraDiff}`);
+  // console.log(`  Inter-team Elo diff: ${interDiff}`);
 
   return score;
+}
+
+function buildSamplingWeights(scoredCandidates, options = PAIRING_SAMPLING_DEFAULTS) {
+  if (!scoredCandidates.length) {
+    return [];
+  }
+
+  const mergedOptions = {
+    ...PAIRING_SAMPLING_DEFAULTS,
+    ...(options || {}),
+  };
+
+  const scores = scoredCandidates.map(candidate => candidate.score);
+  const maxScore = Math.max(...scores);
+  const minScore = Math.min(...scores);
+  const scoreSpread = maxScore - minScore;
+  const safeScoreSpreadDivisor =
+    (typeof mergedOptions.scoreSpreadTemperatureDivisor === 'number' && mergedOptions.scoreSpreadTemperatureDivisor > 0)
+      ? mergedOptions.scoreSpreadTemperatureDivisor
+      : PAIRING_SAMPLING_DEFAULTS.scoreSpreadTemperatureDivisor;
+  const safeInterTeamEloScale =
+    (typeof mergedOptions.interTeamEloScale === 'number' && mergedOptions.interTeamEloScale > 0)
+      ? mergedOptions.interTeamEloScale
+      : PAIRING_SAMPLING_DEFAULTS.interTeamEloScale;
+  const safeInterTeamEloStrength =
+    (typeof mergedOptions.interTeamEloStrength === 'number' && mergedOptions.interTeamEloStrength >= 0)
+      ? mergedOptions.interTeamEloStrength
+      : PAIRING_SAMPLING_DEFAULTS.interTeamEloStrength;
+  const scoreTemperature = Math.max(
+    mergedOptions.scoreTemperatureFloor,
+    scoreSpread / safeScoreSpreadDivisor
+  );
+
+  return scoredCandidates.map(candidate => {
+    // Preserve repeat/waiting-karma priorities via softmax on the base score.
+    const scoreFactor = Math.exp((candidate.score - maxScore) / scoreTemperature);
+    // Bias towards lower Elo gap without turning it into a hard deterministic cut.
+    const eloFactor = Math.exp(
+      -(candidate.interTeamEloDiff / safeInterTeamEloScale) * safeInterTeamEloStrength
+    );
+    const weight = Math.max(mergedOptions.minCandidateWeight, scoreFactor * eloFactor);
+
+    return {
+      ...candidate,
+      sampleWeight: weight,
+    };
+  });
+}
+
+function pickWeightedCandidate(weightedCandidates, randomValue) {
+  if (!weightedCandidates.length) {
+    return null;
+  }
+
+  const totalWeight = weightedCandidates.reduce((sum, candidate) => sum + candidate.sampleWeight, 0);
+  if (totalWeight <= 0) {
+    return weightedCandidates[0];
+  }
+
+  const target = randomValue * totalWeight;
+  let cumulative = 0;
+  for (const candidate of weightedCandidates) {
+    cumulative += candidate.sampleWeight;
+    if (target <= cumulative) {
+      return candidate;
+    }
+  }
+
+  return weightedCandidates[weightedCandidates.length - 1];
 }
 
 function buildSideCounts(matches) {
@@ -439,20 +523,22 @@ export async function suggestPairing() {
       return;
   }
 
-  const scored = candidates.map(p => ({
+  const scored = candidates.map(p => {
+    const { interDiff } = getPairingEloDiffs(p.teamA, p.teamB, data.eloMap);
+    return {
       pairing: p,
-      score: scorePairing(p, data)
-  }));
+      score: scorePairing(p, data),
+      interTeamEloDiff: interDiff
+    };
+  });
   scored.sort((a, b) => b.score - a.score);
 
-  // Take the best scoring pairing. If there's a tie, choose a random one among the best with a seeded random.
+  // Sample one candidate with deterministic seeded randomness.
+  // Base score keeps repeat/karma pressure; Elo gap shapes probabilities.
   // Use the active players + a session key as a seed for reproducibility across devices.
   // The session key changes between sessions (based on the first match in-session, or the latest match timestamp
   // when the session hasn't started yet), so the same active players can yield a different first suggestion
   // in a new session.
-  const bestScore = scored[0].score;
-  const bestCandidates = scored.filter(s => s.score === bestScore);
-  
   const sessionStartTimestamp = (sessionMatches.length > 0 && typeof sessionMatches[0].timestamp === 'number')
     ? sessionMatches[0].timestamp
     : null;
@@ -475,9 +561,11 @@ export async function suggestPairing() {
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
   };
-  
-  const randomIndex = Math.floor(seededRandom(seed + sessionMatches.length) * bestCandidates.length);
-  const best = bestCandidates[randomIndex].pairing;
+
+  const randomValue = seededRandom(seed + sessionMatches.length);
+  const weightedCandidates = buildSamplingWeights(scored, PAIRING_SAMPLING_DEFAULTS);
+  const chosen = pickWeightedCandidate(weightedCandidates, randomValue) || weightedCandidates[0];
+  const best = chosen.pairing;
   const { countA, countB } = buildSideCounts(chronologicalMatches);
   const { teamA, teamB } = best;
 
