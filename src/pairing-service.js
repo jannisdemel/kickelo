@@ -12,12 +12,9 @@ const WAITING_KARMA_DEFAULTS = {
   durationInfluence: 0,
 };
 
-const PAIRING_SAMPLING_DEFAULTS = {
-  maxScoreGapForSampling: 1e-6,
-  interTeamEloScale: 80,
-  interTeamEloStrength: 1,
-  minCandidateWeight: 1e-12,
-};
+const TOP_SCORE_EPSILON = 1e-6;
+const INTER_TEAM_ELO_SCALE = 80;
+const PAIRING_DEBUG_STORAGE_KEY = 'kickeloPairingDebug';
 
 let lastSuggestion = null;
 
@@ -27,7 +24,7 @@ function isPairingDebugEnabled() {
   }
 
   try {
-    const storageFlag = window.localStorage?.getItem('kickeloPairingDebug');
+    const storageFlag = window.localStorage?.getItem(PAIRING_DEBUG_STORAGE_KEY);
     if (storageFlag === '1') {
       return true;
     }
@@ -352,23 +349,11 @@ function countPlaysPerPlayer(sessionMatches, activePlayers) {
 }
 
 function hasUniformPlayCounts(playsCount, activePlayers) {
-  if (!Array.isArray(activePlayers) || activePlayers.length <= 1) {
-    return true;
-  }
-
-  let referenceCount = null;
-  for (const player of activePlayers) {
-    const count = Number.isFinite(playsCount?.[player]) ? playsCount[player] : 0;
-    if (referenceCount === null) {
-      referenceCount = count;
-      continue;
-    }
-    if (count !== referenceCount) {
-      return false;
-    }
-  }
-
-  return true;
+  return new Set(
+    (activePlayers || []).map(player => (
+      Number.isFinite(playsCount?.[player]) ? playsCount[player] : 0
+    ))
+  ).size <= 1;
 }
 
 function buildCoAndOppCounts(matches, activePlayers) {
@@ -493,132 +478,40 @@ function scorePairing(p, data) {
   return score;
 }
 
-function buildSamplingWeights(scoredCandidates, options = PAIRING_SAMPLING_DEFAULTS) {
+function sampleTopFairnessCandidates(scoredCandidates, randomValue) {
   if (!scoredCandidates.length) {
-    return [];
+    return { topScoredCandidates: [], weightedCandidates: [], chosen: null };
   }
 
-  const mergedOptions = {
-    ...PAIRING_SAMPLING_DEFAULTS,
-    ...(options || {}),
-  };
+  const topScore = scoredCandidates[0].score;
+  const topScoredCandidates = scoredCandidates.filter(candidate =>
+    (topScore - candidate.score) <= TOP_SCORE_EPSILON
+  );
 
-  const safeInterTeamEloScale =
-    (typeof mergedOptions.interTeamEloScale === 'number'
-      && Number.isFinite(mergedOptions.interTeamEloScale)
-      && mergedOptions.interTeamEloScale > 0)
-      ? mergedOptions.interTeamEloScale
-      : PAIRING_SAMPLING_DEFAULTS.interTeamEloScale;
-  const safeInterTeamEloStrength =
-    (typeof mergedOptions.interTeamEloStrength === 'number'
-      && Number.isFinite(mergedOptions.interTeamEloStrength)
-      && mergedOptions.interTeamEloStrength >= 0)
-      ? mergedOptions.interTeamEloStrength
-      : PAIRING_SAMPLING_DEFAULTS.interTeamEloStrength;
-  const safeMinCandidateWeight =
-    (typeof mergedOptions.minCandidateWeight === 'number'
-      && Number.isFinite(mergedOptions.minCandidateWeight)
-      && mergedOptions.minCandidateWeight > 0)
-      ? mergedOptions.minCandidateWeight
-      : PAIRING_SAMPLING_DEFAULTS.minCandidateWeight;
-
-  return scoredCandidates.map(candidate => {
-    const candidateScore = Number.isFinite(candidate?.score) ? candidate.score : 0;
-    const interTeamEloDiff = Number.isFinite(candidate?.interTeamEloDiff) && candidate.interTeamEloDiff >= 0
-      ? candidate.interTeamEloDiff
-      : 0;
-
-    // At this point candidates have already been filtered to the top score band.
-    // Elo only biases the tie-break among otherwise-equally good pairings.
-    const rawWeight = Math.exp(
-      -(interTeamEloDiff / safeInterTeamEloScale) * safeInterTeamEloStrength
-    );
-    const normalizedWeight = Number.isFinite(rawWeight) && rawWeight >= 0
-      ? rawWeight
-      : safeMinCandidateWeight;
-    const weight = Math.max(safeMinCandidateWeight, normalizedWeight);
-
-    return {
-      ...candidate,
-      score: candidateScore,
-      interTeamEloDiff,
-      sampleWeight: weight,
-    };
-  });
-}
-
-function getTopScoredCandidates(scoredCandidates, options = PAIRING_SAMPLING_DEFAULTS) {
-  if (!scoredCandidates.length) {
-    return [];
-  }
-
-  const mergedOptions = {
-    ...PAIRING_SAMPLING_DEFAULTS,
-    ...(options || {}),
-  };
-
-  const safeMaxScoreGap =
-    (typeof mergedOptions.maxScoreGapForSampling === 'number'
-      && Number.isFinite(mergedOptions.maxScoreGapForSampling)
-      && mergedOptions.maxScoreGapForSampling >= 0)
-      ? mergedOptions.maxScoreGapForSampling
-      : PAIRING_SAMPLING_DEFAULTS.maxScoreGapForSampling;
-
-  let maxScore = -Infinity;
-  for (const candidate of scoredCandidates) {
-    const candidateScore = Number.isFinite(candidate?.score) ? candidate.score : -Infinity;
-    if (candidateScore > maxScore) {
-      maxScore = candidateScore;
-    }
-  }
-
-  if (!Number.isFinite(maxScore)) {
-    return [];
-  }
-
-  return scoredCandidates
-    .map(candidate => ({
-      ...candidate,
-      score: Number.isFinite(candidate?.score) ? candidate.score : maxScore,
-      interTeamEloDiff: Number.isFinite(candidate?.interTeamEloDiff) && candidate.interTeamEloDiff >= 0
-        ? candidate.interTeamEloDiff
-        : 0
-    }))
-    .filter(candidate => (maxScore - candidate.score) <= safeMaxScoreGap);
-}
-
-function pickWeightedCandidate(weightedCandidates, randomValue) {
-  if (!weightedCandidates.length) {
-    return null;
-  }
-
-  const normalizedWeights = weightedCandidates.map(candidate => ({
-    candidate,
-    weight: (Number.isFinite(candidate?.sampleWeight) && candidate.sampleWeight > 0) ? candidate.sampleWeight : 0
+  const weightedCandidates = topScoredCandidates.map(candidate => ({
+    ...candidate,
+    sampleWeight: Math.exp(-candidate.interTeamEloDiff / INTER_TEAM_ELO_SCALE),
   }));
-
-  const totalWeight = normalizedWeights.reduce((sum, entry) => sum + entry.weight, 0);
-  if (!Number.isFinite(totalWeight) || totalWeight <= 0) {
-    return weightedCandidates[0];
-  }
 
   const safeRandomValue = Number.isFinite(randomValue)
     ? Math.min(Math.max(randomValue, 0), 1 - Number.EPSILON)
     : 0;
+  const totalWeight = weightedCandidates.reduce((sum, candidate) => sum + candidate.sampleWeight, 0);
   const target = safeRandomValue * totalWeight;
+
   let cumulative = 0;
-  let lastPositiveCandidate = null;
-  for (const entry of normalizedWeights) {
-    cumulative += entry.weight;
-    if (entry.weight > 0) {
-      lastPositiveCandidate = entry.candidate;
-    }
+  for (const candidate of weightedCandidates) {
+    cumulative += candidate.sampleWeight;
     if (target <= cumulative) {
-      return entry.candidate;
+      return { topScoredCandidates, weightedCandidates, chosen: candidate };
     }
   }
 
-  return lastPositiveCandidate || weightedCandidates[weightedCandidates.length - 1];
+  return {
+    topScoredCandidates,
+    weightedCandidates,
+    chosen: weightedCandidates[weightedCandidates.length - 1] || null,
+  };
 }
 
 function buildSideCounts(matches) {
@@ -671,11 +564,11 @@ export async function suggestPairing() {
   });
 
   const data = {
-      playsCount,
-      countsSession,
-      countsHistoric,
-  eloMap,
-  waitingKarmaMap: effectiveWaitingKarmaMap
+    playsCount,
+    countsSession,
+    countsHistoric,
+    eloMap,
+    waitingKarmaMap: effectiveWaitingKarmaMap
   };
 
   const candidates = generatePairings(activePlayers);
@@ -724,11 +617,11 @@ export async function suggestPairing() {
   };
 
   const randomValue = seededRandom(seed + sessionMatches.length);
-  const topScoredCandidates = getTopScoredCandidates(scored, PAIRING_SAMPLING_DEFAULTS);
-  const weightedCandidates = buildSamplingWeights(topScoredCandidates, PAIRING_SAMPLING_DEFAULTS);
-  const chosen = pickWeightedCandidate(weightedCandidates, randomValue)
-    || weightedCandidates[0]
-    || scored[0];
+  const {
+    topScoredCandidates,
+    weightedCandidates,
+    chosen
+  } = sampleTopFairnessCandidates(scored, randomValue);
   logPairingDebug({
     activePlayers,
     playsCount,
@@ -739,7 +632,7 @@ export async function suggestPairing() {
     chosen,
     randomValue,
   });
-  const best = chosen.pairing;
+  const best = (chosen || scored[0]).pairing;
   const { countA, countB } = buildSideCounts(chronologicalMatches);
   const { teamA, teamB } = best;
 
