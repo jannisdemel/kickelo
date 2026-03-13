@@ -13,8 +13,7 @@ const WAITING_KARMA_DEFAULTS = {
 };
 
 const PAIRING_SAMPLING_DEFAULTS = {
-  scoreSpreadTemperatureDivisor: 8,
-  scoreTemperatureFloor: 1,
+  maxScoreGapForSampling: 1e-6,
   interTeamEloScale: 140,
   interTeamEloStrength: 1,
   minCandidateWeight: 1e-12,
@@ -271,6 +270,26 @@ function countPlaysPerPlayer(sessionMatches, activePlayers) {
   return count;
 }
 
+function hasUniformPlayCounts(playsCount, activePlayers) {
+  if (!Array.isArray(activePlayers) || activePlayers.length <= 1) {
+    return true;
+  }
+
+  let referenceCount = null;
+  for (const player of activePlayers) {
+    const count = Number.isFinite(playsCount?.[player]) ? playsCount[player] : 0;
+    if (referenceCount === null) {
+      referenceCount = count;
+      continue;
+    }
+    if (count !== referenceCount) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function buildCoAndOppCounts(matches, activePlayers) {
   const withCount = {}, againstCount = {};
   activePlayers.forEach(a => {
@@ -403,37 +422,6 @@ function buildSamplingWeights(scoredCandidates, options = PAIRING_SAMPLING_DEFAU
     ...(options || {}),
   };
 
-  let maxScore = -Infinity;
-  let minScore = Infinity;
-  for (const candidate of scoredCandidates) {
-    const candidateScore = Number.isFinite(candidate?.score) ? candidate.score : 0;
-    if (candidateScore > maxScore) {
-      maxScore = candidateScore;
-    }
-    if (candidateScore < minScore) {
-      minScore = candidateScore;
-    }
-  }
-  if (!Number.isFinite(maxScore)) {
-    maxScore = 0;
-  }
-  if (!Number.isFinite(minScore)) {
-    minScore = 0;
-  }
-
-  const scoreSpread = maxScore - minScore;
-  const safeScoreSpreadDivisor =
-    (typeof mergedOptions.scoreSpreadTemperatureDivisor === 'number'
-      && Number.isFinite(mergedOptions.scoreSpreadTemperatureDivisor)
-      && mergedOptions.scoreSpreadTemperatureDivisor > 0)
-      ? mergedOptions.scoreSpreadTemperatureDivisor
-      : PAIRING_SAMPLING_DEFAULTS.scoreSpreadTemperatureDivisor;
-  const safeScoreTemperatureFloor =
-    (typeof mergedOptions.scoreTemperatureFloor === 'number'
-      && Number.isFinite(mergedOptions.scoreTemperatureFloor)
-      && mergedOptions.scoreTemperatureFloor > 0)
-      ? mergedOptions.scoreTemperatureFloor
-      : PAIRING_SAMPLING_DEFAULTS.scoreTemperatureFloor;
   const safeInterTeamEloScale =
     (typeof mergedOptions.interTeamEloScale === 'number'
       && Number.isFinite(mergedOptions.interTeamEloScale)
@@ -452,27 +440,18 @@ function buildSamplingWeights(scoredCandidates, options = PAIRING_SAMPLING_DEFAU
       && mergedOptions.minCandidateWeight > 0)
       ? mergedOptions.minCandidateWeight
       : PAIRING_SAMPLING_DEFAULTS.minCandidateWeight;
-  const scoreTemperature = Math.max(
-    safeScoreTemperatureFloor,
-    scoreSpread / safeScoreSpreadDivisor
-  );
-  const safeScoreTemperature = Number.isFinite(scoreTemperature) && scoreTemperature > 0
-    ? scoreTemperature
-    : safeScoreTemperatureFloor;
 
   return scoredCandidates.map(candidate => {
-    const candidateScore = Number.isFinite(candidate?.score) ? candidate.score : minScore;
+    const candidateScore = Number.isFinite(candidate?.score) ? candidate.score : 0;
     const interTeamEloDiff = Number.isFinite(candidate?.interTeamEloDiff) && candidate.interTeamEloDiff >= 0
       ? candidate.interTeamEloDiff
       : 0;
 
-    // Preserve repeat/waiting-karma priorities via softmax on the base score.
-    const scoreFactor = Math.exp((candidateScore - maxScore) / safeScoreTemperature);
-    // Bias towards lower Elo gap without turning it into a hard deterministic cut.
-    const eloFactor = Math.exp(
+    // At this point candidates have already been filtered to the top score band.
+    // Elo only biases the tie-break among otherwise-equally good pairings.
+    const rawWeight = Math.exp(
       -(interTeamEloDiff / safeInterTeamEloScale) * safeInterTeamEloStrength
     );
-    const rawWeight = scoreFactor * eloFactor;
     const normalizedWeight = Number.isFinite(rawWeight) && rawWeight >= 0
       ? rawWeight
       : safeMinCandidateWeight;
@@ -485,6 +464,46 @@ function buildSamplingWeights(scoredCandidates, options = PAIRING_SAMPLING_DEFAU
       sampleWeight: weight,
     };
   });
+}
+
+function getTopScoredCandidates(scoredCandidates, options = PAIRING_SAMPLING_DEFAULTS) {
+  if (!scoredCandidates.length) {
+    return [];
+  }
+
+  const mergedOptions = {
+    ...PAIRING_SAMPLING_DEFAULTS,
+    ...(options || {}),
+  };
+
+  const safeMaxScoreGap =
+    (typeof mergedOptions.maxScoreGapForSampling === 'number'
+      && Number.isFinite(mergedOptions.maxScoreGapForSampling)
+      && mergedOptions.maxScoreGapForSampling >= 0)
+      ? mergedOptions.maxScoreGapForSampling
+      : PAIRING_SAMPLING_DEFAULTS.maxScoreGapForSampling;
+
+  let maxScore = -Infinity;
+  for (const candidate of scoredCandidates) {
+    const candidateScore = Number.isFinite(candidate?.score) ? candidate.score : -Infinity;
+    if (candidateScore > maxScore) {
+      maxScore = candidateScore;
+    }
+  }
+
+  if (!Number.isFinite(maxScore)) {
+    return [];
+  }
+
+  return scoredCandidates
+    .map(candidate => ({
+      ...candidate,
+      score: Number.isFinite(candidate?.score) ? candidate.score : maxScore,
+      interTeamEloDiff: Number.isFinite(candidate?.interTeamEloDiff) && candidate.interTeamEloDiff >= 0
+        ? candidate.interTeamEloDiff
+        : 0
+    }))
+    .filter(candidate => (maxScore - candidate.score) <= safeMaxScoreGap);
 }
 
 function pickWeightedCandidate(weightedCandidates, randomValue) {
@@ -560,8 +579,11 @@ export async function suggestPairing() {
   const countsSession = buildCoAndOppCounts(sessionMatches, activePlayers);
   const countsHistoric = buildCoAndOppCounts(historicMatches, activePlayers);
   const waitingKarmaMap = computeWaitingKarma(sessionMatches, activePlayers, WAITING_KARMA_DEFAULTS);
+  const effectiveWaitingKarmaMap = hasUniformPlayCounts(playsCount, activePlayers)
+    ? {}
+    : waitingKarmaMap;
 
-  console.log("Waiting Karma Map:", waitingKarmaMap);
+  console.log("Waiting Karma Map:", effectiveWaitingKarmaMap);
 
   const eloMap = {};
   activePlayers.forEach(playerId => {
@@ -573,7 +595,7 @@ export async function suggestPairing() {
       countsSession,
       countsHistoric,
   eloMap,
-  waitingKarmaMap
+  waitingKarmaMap: effectiveWaitingKarmaMap
   };
 
   const candidates = generatePairings(activePlayers);
@@ -622,8 +644,11 @@ export async function suggestPairing() {
   };
 
   const randomValue = seededRandom(seed + sessionMatches.length);
-  const weightedCandidates = buildSamplingWeights(scored, PAIRING_SAMPLING_DEFAULTS);
-  const chosen = pickWeightedCandidate(weightedCandidates, randomValue) || weightedCandidates[0];
+  const topScoredCandidates = getTopScoredCandidates(scored, PAIRING_SAMPLING_DEFAULTS);
+  const weightedCandidates = buildSamplingWeights(topScoredCandidates, PAIRING_SAMPLING_DEFAULTS);
+  const chosen = pickWeightedCandidate(weightedCandidates, randomValue)
+    || weightedCandidates[0]
+    || scored[0];
   const best = chosen.pairing;
   const { countA, countB } = buildSideCounts(chronologicalMatches);
   const { teamA, teamB } = best;
