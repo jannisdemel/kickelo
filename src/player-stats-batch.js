@@ -97,7 +97,9 @@ export function computeAllPlayerStats(matches, options = {}) {
             openskillRating: null,
             roleElo: { offense: STARTING_ELO, defense: STARTING_ELO },
             roleEloTrajectory: { offense: [], defense: [] },
-            roleGames: { offense: 0, defense: 0 }
+            roleGames: { offense: 0, defense: 0 },
+            _wallStreak: 0,
+            wallStreak: 0
         };
         stats[playerName]._medicEvents = [];
         stats[playerName]._weekdayActivityDays = new Set();
@@ -353,6 +355,18 @@ export function computeAllPlayerStats(matches, options = {}) {
                 if (isChillComebackWin) s.statusEvents.chillComebackCount += 1;
             }
 
+            // Wall badge: track consecutive defense games conceding 0 or 1 goals
+            if (includeRoleBasedElo && teamPlayers.length === 2) {
+                const isDefense = teamPlayers[0] === playerId;
+                if (isDefense) {
+                    if (oppGoals <= 1) {
+                        s._wallStreak++;
+                    } else {
+                        s._wallStreak = 0;
+                    }
+                }
+            }
+
             // Streakyness
             if (s.lastResult !== null && s.lastResult === result) s.consecutiveSame++;
             s.lastResult = result;
@@ -444,6 +458,7 @@ export function computeAllPlayerStats(matches, options = {}) {
     s.medicTeammatesHelped = computeMedicUniqueCount(s._medicEvents, MEDIC_LOOKBACK_MS);
     s.gardenerWeekdayStreak = computeWeekdayActivityStreak(s._weekdayActivityDays);
     s.goldenPhiStreak = s._goldenPhiCurrent || 0;
+        s.wallStreak = s._wallStreak || 0;
         
         // Remove helper fields
         delete s.streakType;
@@ -468,6 +483,7 @@ export function computeAllPlayerStats(matches, options = {}) {
         delete s._weekdayActivityDays;
         delete s._goldenPhiCurrent;
         delete s._openskillState;
+        delete s._wallStreak;
     }
     let globalHighestElo = STARTING_ELO;
     for (const playerName of players) {

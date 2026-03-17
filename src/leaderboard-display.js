@@ -24,6 +24,7 @@ const BADGE_VALUE_COLORS = {
     '🩹': '#f5f5f5ff', // medic
     '🪴': '#4ade51ff', // gardener
     'φ': '#fcd34d', // golden streak
+    '🧱': '#a8a29e', // wall
 };
 const BADGE_EMOJI_COLORS = {
     'φ': '#fcd34d',
@@ -334,6 +335,11 @@ function getStatusBadges(stats) {
     const goldenPhi = stats.goldenPhiStreak || 0;
     if (goldenPhi >= goldenConfig.minWins) {
         badges.push(formatBadge('φ', goldenPhi, 0));
+    }
+
+    const wallStreak = stats.wallStreak || 0;
+    if (wallStreak >= 3) {
+        badges.push(formatBadge('🧱', wallStreak, 0));
     }
 
     return badges;

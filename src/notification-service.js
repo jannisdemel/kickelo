@@ -3,6 +3,7 @@ import { doc, getDoc, setDoc, updateDoc, onSnapshot } from './firebase-service.j
 import { auth, db } from './firebase-service.js';
 import { notifyOnMatchCheckbox } from './dom-elements.js';
 import { serverTimestamp, deleteField } from 'firebase/firestore';
+import { showToast } from './toast.js';
 
 const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY || '';
 let initialized = false;
@@ -66,7 +67,7 @@ async function enableNotifications() {
     if (!VAPID_KEY) {
         console.warn('Missing VITE_FIREBASE_VAPID_KEY. Notifications are disabled.');
         updateCheckboxState(false);
-        alert('Notifications are not configured yet. Please set VITE_FIREBASE_VAPID_KEY.');
+        showToast('Notifications are not configured yet. Please set VITE_FIREBASE_VAPID_KEY.', 'warning');
         return;
     }
 

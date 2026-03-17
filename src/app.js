@@ -12,6 +12,7 @@ import { initializeMatchesData, resetMatchDataListener, refreshSeasonStats } fro
 import { PAUSE_DATES, PAUSE_MESSAGE, PAUSE_IMAGE_PATH } from './constants.js';
 import { getSelectedSeason } from './season-service.js';
 import { initializeNotifications } from './notification-service.js';
+import { initializeActivityHeatmap } from './activity-heatmap.js';
 
 import { auth } from './firebase-service.js';
 import { onAuthStateChanged, signInWithEmailAndPassword, setPersistence, browserLocalPersistence, signOut } from 'firebase/auth';
@@ -74,6 +75,7 @@ function goOnline() {
     // Initialize the UI components that depend on that data
     initializeLeaderboardDisplay();
     initializeRecentMatchesDisplay();
+    initializeActivityHeatmap();
     initializePlayerManager();
     initializeNotifications();
 }

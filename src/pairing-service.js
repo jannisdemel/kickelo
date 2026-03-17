@@ -4,6 +4,7 @@ import { teamA1Select, teamA2Select, teamB1Select, teamB2Select } from './dom-el
 import { notifyRolesChanged } from "./match-form-handler.js";
 import { getCachedStats, isCacheReady } from './stats-cache-service.js';
 import { STARTING_ELO, SESSION_GAP_MS } from './constants.js';
+import { showToast } from './toast.js';
 
 const SUGGESTION_TTL = SESSION_GAP_MS;
 
@@ -405,7 +406,7 @@ export async function suggestPairing() {
   const activePlayers = (sessDocSnap.exists() && sessDocSnap.data().activePlayers) || [];
   
   if (activePlayers.length < 4) {
-      alert("Please select at least 4 active players to suggest a pairing.");
+      showToast("Please select at least 4 active players to suggest a pairing.", 'warning');
       return;
   }
 
@@ -435,7 +436,7 @@ export async function suggestPairing() {
 
   const candidates = generatePairings(activePlayers);
   if (candidates.length === 0) {
-      alert("Could not generate any pairings with the selected active players.");
+      showToast("Could not generate any pairings with the selected active players.", 'warning');
       return;
   }
 

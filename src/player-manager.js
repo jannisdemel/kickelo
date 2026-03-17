@@ -2,6 +2,7 @@
 import { db, doc, getDoc, setDoc } from './firebase-service.js';
 import { allPlayers } from './player-data-service.js';
 import { teamA1Select, teamA2Select, teamB1Select, teamB2Select } from './dom-elements.js';
+import { showToast } from './toast.js';
 
 /**
  * Checks if a player exists and creates them if they don't.
@@ -84,13 +85,13 @@ async function handlePlayerDropdownChange(e) {
         if (newName) {
             const trimmedName = newName.trim();
             if (!trimmedName) {
-                alert("Player name cannot be empty.");
+                showToast("Player name cannot be empty.", 'error');
                 e.target.value = "";
                 return;
             }
             const validNamePattern = /^[a-zA-Z0-9_]+$/;
             if (!validNamePattern.test(trimmedName)) {
-                alert("Player name can only contain alphanumeric characters and underscores.");
+                showToast("Player name can only contain alphanumeric characters and underscores.", 'error');
                 e.target.value = "";
                 return;
             }
@@ -98,7 +99,7 @@ async function handlePlayerDropdownChange(e) {
             // Check for existence using the local cache first for speed.
             const playerExists = allPlayers.some(p => p.id === trimmedName);
             if (playerExists) {
-                alert(`Player "${trimmedName}" already exists.`);
+                showToast(`Player "${trimmedName}" already exists.`, 'error');
                 e.target.value = "";
                 return;
             }
