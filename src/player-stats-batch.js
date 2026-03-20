@@ -192,6 +192,8 @@ export function computeAllPlayerStats(matches, options = {}) {
         const losingGoals = match.winner === 'A' ? match.goalsB : match.goalsA;
         const isShutoutWin = winningGoals === MAX_GOALS && losingGoals === 0;
         const winnerOppStreakCount = match.winner === 'A' ? streakBreaksAgainstA : streakBreaksAgainstB;
+        const hattrickA = hasGoalLog ? detectHattrick(match.goalLog, 'red') : false;
+        const hattrickB = hasGoalLog ? detectHattrick(match.goalLog, 'blue') : false;
 
         // Only update role-based Elo if positions are confirmed
         const includeRoleBasedElo = match.positionsConfirmed == true;
@@ -354,7 +356,7 @@ export function computeAllPlayerStats(matches, options = {}) {
                 if (isFastMatch) s.statusEvents.fastWinCount += 1;
                 if (isRollercoasterWin) s.statusEvents.rollercoasterCount += 1;
                 if (isChillComebackWin) s.statusEvents.chillComebackCount += 1;
-                if (hasGoalLog && detectHattrick(match.goalLog, team === 'A' ? 'red' : 'blue')) s.statusEvents.hattrickCount += 1;
+                if (team === 'A' ? hattrickA : hattrickB) s.statusEvents.hattrickCount += 1;
             }
 
             // Streakyness
