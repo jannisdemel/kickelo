@@ -10,7 +10,7 @@ import {
     teamA1Select, teamA2Select, teamB1Select, teamB2Select,
     teamAgoalsInput, teamBgoalsInput, submitMatchBtn,
     toggleLiveMode, liveMatchPanel, btnBlueScored, btnRedScored, goalTimeline, liveModeStatus,
-    vibrationSeismograph, uploadIndicator,
+
     positionConfirmationContainer, positionsConfirmedCheckbox,
     rankedMatchContainer, rankedMatchCheckbox
 } from './dom-elements.js';
@@ -207,30 +207,6 @@ export function setupMatchForm() {
             const matchDocRef = await addDoc(matchesColRef, matchData);
             clearLastSuggestion();
 
-            // 3. If vibration tracking enabled, upload log to Storage and update match doc
-            if (vibrationTrackingEnabled && vibrationLog.length > 0) {
-                try {
-                    uploadIndicator.style.display = 'flex';
-                    const { storage, storageRef } = await import('./firebase-service.js');
-                    const logPath = `vibrationLogs/${matchDocRef.id}.json`;
-                    const fileRef = storageRef(storage, logPath);
-                    const logBlob = new Blob([JSON.stringify(vibrationLog)], { type: 'application/json' });
-                    await (await import('firebase/storage')).uploadBytes(fileRef, logBlob);
-                    await updateDoc(matchDocRef, { vibrationLogPath: logPath });
-                    // wait for a second to admire the loading animation
-                    await new Promise(res => setTimeout(res, 1000));
-                    console.log("Vibration log uploaded successfully.");
-                } catch (uploadError) {
-                    console.log("Vibration log upload failed:", uploadError.message || uploadError);
-                    alert("Vibration log upload failed. Match was still submitted, but without vibration log.");
-                } finally {
-                    uploadIndicator.style.display = 'none';
-                    stopVibrationTracking();
-                    // wait until uploadIndicator is hidden
-                    await new Promise(res => setTimeout(res, 300));
-                }
-            }
-
             alert("Match submitted!");
             resetMatchForm();
             setLiveMode(false, true); // Reset to final score mode after submit
@@ -314,115 +290,17 @@ document.getElementById("teamBgoals").addEventListener("change", function () {
   other_goal_dropdown.value = String(MAX_GOALS);
 });
 
-// --- Experimental Vibration Tracking ---
-let vibrationTrackingEnabled = false;
-let vibrationLog = [];
-let vibrationListener = null;
-let vibrationDrawInterval = null;
-
-function promptVibrationTracking() {
-    return new Promise((resolve) => {
-        const consent = window.confirm(
-            'Enable vibration tracking for this match? (Experimental)\n\nThis will record accelerometer data while live mode is active.'
-        );
-        resolve(consent);
-    });
-}
-
-function startVibrationTracking() {
-    console.log("Starting vibration tracking...");
-    vibrationTrackingEnabled = true;
-    vibrationLog = [];
-    if (!window.DeviceMotionEvent) {
-        console.error('DeviceMotion API not supported on this device/browser.');
-        alert('DeviceMotion API not supported on this device/browser.');
-        vibrationTrackingEnabled = false;
-        return;
-    }
-    vibrationSeismograph.style.display = '';
-    // Listen for device motion events
-    vibrationListener = function(event) {
-        // console.log(event);
-        const { x, y, z } = event.acceleration || {};
-        if (x == null || y == null || z == null) {
-            console.warn('Incomplete accelerometer data received.');
-            return;
-        }
-        vibrationLog.push({
-            t: Date.now(),
-            x, y, z
-        });
-    };
-    window.addEventListener('devicemotion', vibrationListener);
-    // Start drawing the seismograph
-    vibrationDrawInterval = setInterval(drawVibrationSeismograph, 50);
-}
-
-function stopVibrationTracking() {
-    console.log("Stopping vibration tracking...");
-    if (vibrationListener) {
-        window.removeEventListener('devicemotion', vibrationListener);
-        vibrationListener = null;
-    }
-    if (vibrationDrawInterval) {
-        clearInterval(vibrationDrawInterval);
-        vibrationDrawInterval = null;
-    }
-    vibrationSeismograph.style.display = 'none';
-    vibrationTrackingEnabled = false;
-}
-
-function drawVibrationSeismograph() {
-    const ctx = vibrationSeismograph.getContext('2d');
-    const width = vibrationSeismograph.width;
-    const height = vibrationSeismograph.height;
-    ctx.clearRect(0, 0, width, height);
-    // Show last 10 seconds
-    const now = Date.now();
-    const windowMs = 10000;
-    const minT = now - windowMs;
-    const samples = vibrationLog.filter(d => d.t >= minT);
-    if (samples.length < 2) return;
-    // Compute magnitude
-    const mags = samples.map(d => Math.sqrt(d.x*d.x + d.y*d.y + d.z*d.z));
-    // Normalize
-    const maxMag = Math.max(1, ...mags);
-    ctx.strokeStyle = '#6cabc2';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let i = 0; i < samples.length; ++i) {
-        const x = (samples[i].t - minT) / windowMs * width;
-        const y = height - (mags[i] / maxMag) * height;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-}
-
 // --- Live Mode Integration ---
 let liveMode = false;
 let goalLog = [];
 let matchStartTime = 0;
 let liveTimerInterval = null; // Timer interval for live match
 
-// Refactored setLiveMode to handle vibration tracking natively
 async function setLiveMode(enabled, skipPrompt = false) {
     if (enabled === liveMode) return;
     if (!enabled && goalLog.length > 0 && !skipPrompt) {
         if (!confirm('Switching to Final Score Mode will discard the live goal log. Continue?')) return;
         goalLog = [];
-    }
-    if (enabled) {
-        // Prompt for vibration tracking
-        const consent = await promptVibrationTracking();
-        // const consent = false; // Disable vibration tracking for now
-        if (consent) {
-            startVibrationTracking();
-        } else {
-            stopVibrationTracking();
-        }
-    } else {
-        stopVibrationTracking();
     }
     liveMode = enabled;
     liveMatchPanel.style.display = enabled ? 'flex' : 'none';

@@ -26,8 +26,6 @@ const btnBlueScored = document.getElementById("btnBlueScored");
 const btnRedScored = document.getElementById("btnRedScored");
 const goalTimeline = document.getElementById("goalTimeline");
 const liveModeStatus = document.getElementById("liveModeStatus");
-const vibrationSeismograph = document.getElementById('vibrationSeismograph');
-const uploadIndicator = document.getElementById('uploadIndicator');
 const positionConfirmationContainer = document.getElementById('positionConfirmationContainer');
 const positionsConfirmedCheckbox = document.getElementById('positionsConfirmedCheckbox');
 const rankedMatchContainer = document.getElementById('rankedMatchContainer');
@@ -60,8 +58,6 @@ export {
     btnRedScored,
     goalTimeline,
     liveModeStatus,
-    vibrationSeismograph,
-    uploadIndicator,
     positionConfirmationContainer,
     positionsConfirmedCheckbox,
     rankedMatchContainer,
