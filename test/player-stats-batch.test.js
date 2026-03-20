@@ -385,3 +385,74 @@ function isWeekday(date) {
     const day = date.getDay();
     return day >= 1 && day <= 5;
 }
+
+// --- New stat regression tests ---
+
+function testLongestGoldenPhiStreak() {
+    console.log('\n=== Testing longestGoldenPhiStreak ===\n');
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    const now = Date.now();
+
+    // Alice: 3 consecutive 5:4 wins, then a 4:5 loss, then 1 more 5:4 win
+    // Expected: longestGoldenPhiStreak=3, goldenPhiStreak=1
+    const matches = [
+        { id: 'g1', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - 4 * DAY },
+        { id: 'g2', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - 3 * DAY },
+        { id: 'g3', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - 2 * DAY },
+        { id: 'g4', teamA: ['Alice'], teamB: ['Bob'], winner: 'B', goalsA: 4, goalsB: 5, eloDelta: 10, timestamp: now - DAY },
+        { id: 'g5', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - HOUR },
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const { players: stats } = computeAllPlayerStats(matches);
+    const alice = stats['Alice'];
+
+    if (!alice) throw new Error('Alice missing from stats');
+    if (alice.longestGoldenPhiStreak !== 3) {
+        throw new Error(`Expected longestGoldenPhiStreak=3, got ${alice.longestGoldenPhiStreak}`);
+    }
+    if (alice.goldenPhiStreak !== 1) {
+        throw new Error(`Expected current goldenPhiStreak=1, got ${alice.goldenPhiStreak}`);
+    }
+    console.log('✓ longestGoldenPhiStreak correctly tracks peak before reset');
+}
+
+function testLongestPositiveDayRun() {
+    console.log('\n=== Testing longestPositiveDayRun ===\n');
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    const now = Date.now();
+
+    // Alice ELO per day:
+    //   5 days ago: win  → positive (run=1)
+    //   4 days ago: win  → positive (run=2)
+    //   3 days ago: win  → positive (run=3)  ← longest
+    //   2 days ago: lose → negative (run resets)
+    //   1 day ago:  win  → positive (run=1)
+    //   today:      lose → negative (current run=0)
+    // Expected: longestPositiveDayRun=3, currentPositiveDayRun=0
+    const matches = [
+        { id: 'p1', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - 5 * DAY },
+        { id: 'p2', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - 4 * DAY },
+        { id: 'p3', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - 3 * DAY },
+        { id: 'p4', teamA: ['Alice'], teamB: ['Bob'], winner: 'B', goalsA: 2, goalsB: 5, eloDelta: 20, timestamp: now - 2 * DAY },
+        { id: 'p5', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - DAY },
+        { id: 'p6', teamA: ['Alice'], teamB: ['Bob'], winner: 'B', goalsA: 2, goalsB: 5, eloDelta: 20, timestamp: now - HOUR },
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const { players: stats } = computeAllPlayerStats(matches);
+    const alice = stats['Alice'];
+
+    if (!alice) throw new Error('Alice missing from stats');
+    if (alice.longestPositiveDayRun !== 3) {
+        throw new Error(`Expected longestPositiveDayRun=3, got ${alice.longestPositiveDayRun}`);
+    }
+    if (alice.currentPositiveDayRun !== 0) {
+        throw new Error(`Expected currentPositiveDayRun=0, got ${alice.currentPositiveDayRun}`);
+    }
+
+    console.log('✓ longestPositiveDayRun correctly finds peak across all days');
+}
+
+testLongestGoldenPhiStreak();
+testLongestPositiveDayRun();
