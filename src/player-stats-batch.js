@@ -83,7 +83,8 @@ export function computeAllPlayerStats(matches, options = {}) {
                 shutoutCount: 0,
                 fastWinCount: 0,
                 rollercoasterCount: 0,
-                chillComebackCount: 0
+                chillComebackCount: 0,
+                hattrickCount: 0
             },
             dailyDeltas: {},
             alternatingRunLength: 0,
@@ -353,6 +354,7 @@ export function computeAllPlayerStats(matches, options = {}) {
                 if (isFastMatch) s.statusEvents.fastWinCount += 1;
                 if (isRollercoasterWin) s.statusEvents.rollercoasterCount += 1;
                 if (isChillComebackWin) s.statusEvents.chillComebackCount += 1;
+                if (hasGoalLog && detectHattrick(match.goalLog, team === 'A' ? 'red' : 'blue')) s.statusEvents.hattrickCount += 1;
             }
 
             // Streakyness
@@ -795,6 +797,20 @@ function detectChillComeback(match, goalLog) {
         else if (goal.team === 'blue') scoreB++;
     }
     return true;
+}
+
+function detectHattrick(goalLog, teamColor) {
+    if (!Array.isArray(goalLog) || goalLog.length < 3) return false;
+    let consecutive = 0;
+    for (const goal of goalLog) {
+        if (goal.team === teamColor) {
+            consecutive++;
+            if (consecutive >= 3) return true;
+        } else {
+            consecutive = 0;
+        }
+    }
+    return false;
 }
 
 function computeMedicUniqueCount(events, lookbackMs) {

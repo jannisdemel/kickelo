@@ -16,7 +16,8 @@ const BADGE_VALUE_COLORS = {
     '🌊': '#779ae7ff', // streak extinguisher
     '🐍': '#8be47aff', // snake
     '🐕': '#ddb494ff', // underdog
-    '🦏': '#97afd1ff', // rhino/shutout
+    '📄': '#f0f0f0', // clean sheet/shutout
+    '🎩': '#a78bfa', // hat trick
     '👑': '#facc15', // all-time highest ELO
     '☕': '#c08457', // fast win
     '🎢': '#fb5624ff', // rollercoaster
@@ -303,7 +304,10 @@ function getStatusBadges(stats) {
         badges.push(formatBadge('🪃', events.comebackGoalSum, 2));
     }
     if (events.shutoutCount > 0) {
-        badges.push(formatBadge('🦏', events.shutoutCount, 1));
+        badges.push(formatBadge('📄', events.shutoutCount, 1));
+    }
+    if (events.hattrickCount > 0) {
+        badges.push(formatBadge('🎩', events.hattrickCount, 1));
     }
     if (events.underdogPointSum > 0) {
         badges.push(formatBadge('🐕', events.underdogPointSum, 1));
