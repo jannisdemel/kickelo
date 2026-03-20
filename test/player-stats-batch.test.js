@@ -460,25 +460,50 @@ testLongestPositiveDayRun();
 function testHattrickBadge() {
     console.log('\n=== Testing hattrickCount ===\n');
     const HOUR = 60 * 60 * 1000;
+    const MIN = 60 * 1000;
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const today = todayStart.getTime();
 
     const matches = [
-        // Today: Alice wins with 3 consecutive red goals → hat trick
+        // Today: Alice wins with 3 consecutive red goals within 1 min → hat trick
         {
             id: 'ht-yes',
             teamA: ['Alice'], teamB: ['Bob'],
             winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20,
             timestamp: today + HOUR,
-            goalLog: buildGoalLog(['red', 'blue', 'red', 'red', 'red', 'blue', 'red']),
+            goalLog: [
+                { team: 'red',  timestamp: 10000 },
+                { team: 'blue', timestamp: 25000 },
+                { team: 'red',  timestamp: 40000 },
+                { team: 'red',  timestamp: 55000 },
+                { team: 'red',  timestamp: 68000 }, // 3rd red: 68s - 40s = 28s apart from 1st → within 60s
+                { team: 'blue', timestamp: 80000 },
+                { team: 'red',  timestamp: 90000 },
+            ],
+        },
+        // Today: Alice wins with 3 consecutive red goals but spread over >1 min → no hat trick
+        {
+            id: 'ht-slow',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20,
+            timestamp: today + 2 * HOUR,
+            goalLog: [
+                { team: 'red',  timestamp: 10000 },
+                { team: 'red',  timestamp: 50000 },
+                { team: 'red',  timestamp: 80000 }, // 80s - 10s = 70s > 60s → no hat trick
+                { team: 'blue', timestamp: 100000 },
+                { team: 'red',  timestamp: 110000 },
+                { team: 'blue', timestamp: 120000 },
+                { team: 'red',  timestamp: 130000 },
+            ],
         },
         // Today: Alice wins but goals alternate — no hat trick
         {
             id: 'ht-no',
             teamA: ['Alice'], teamB: ['Bob'],
             winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 20,
-            timestamp: today + 2 * HOUR,
+            timestamp: today + 3 * HOUR,
             goalLog: buildGoalLog(['red', 'blue', 'red', 'blue', 'red', 'blue', 'red', 'blue', 'red']),
         },
         // Today: Bob wins with a hat trick but Alice loses — should not count for Alice
@@ -486,7 +511,7 @@ function testHattrickBadge() {
             id: 'ht-loser',
             teamA: ['Bob'], teamB: ['Alice'],
             winner: 'A', goalsA: 5, goalsB: 1, eloDelta: 20,
-            timestamp: today + 3 * HOUR,
+            timestamp: today + 4 * HOUR,
             goalLog: buildGoalLog(['red', 'red', 'red', 'blue', 'red', 'red']),
         },
         // Yesterday: Alice wins with hat trick — should not count (not today)
@@ -506,7 +531,7 @@ function testHattrickBadge() {
     if (!alice) throw new Error('Alice missing from stats');
     if (!bob) throw new Error('Bob missing from stats');
 
-    // Alice should have exactly 1 hat trick (ht-yes), not ht-no, ht-loser, or ht-yesterday
+    // Alice: only ht-yes qualifies (consecutive + within 1 min)
     if (alice.statusEvents.hattrickCount !== 1) {
         throw new Error(`Expected Alice hattrickCount=1, got ${alice.statusEvents.hattrickCount}`);
     }
@@ -515,7 +540,7 @@ function testHattrickBadge() {
         throw new Error(`Expected Bob hattrickCount=1, got ${bob.statusEvents.hattrickCount}`);
     }
 
-    console.log('✓ hattrickCount increments only for today\'s winners with 3 consecutive goals');
+    console.log('✓ hattrickCount increments only for today\'s winners with 3 consecutive goals within 1 minute');
 }
 
 testHattrickBadge();

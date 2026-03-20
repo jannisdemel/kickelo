@@ -801,15 +801,17 @@ function detectChillComeback(match, goalLog) {
     return true;
 }
 
+const HATTRICK_WINDOW_MS = 60 * 1000;
+
 function detectHattrick(goalLog, teamColor) {
     if (!Array.isArray(goalLog) || goalLog.length < 3) return false;
-    let consecutive = 0;
+    let run = [];
     for (const goal of goalLog) {
         if (goal.team === teamColor) {
-            consecutive++;
-            if (consecutive >= 3) return true;
+            run.push(goal.timestamp);
+            if (run.length >= 3 && run[run.length - 1] - run[run.length - 3] <= HATTRICK_WINDOW_MS) return true;
         } else {
-            consecutive = 0;
+            run = [];
         }
     }
     return false;
