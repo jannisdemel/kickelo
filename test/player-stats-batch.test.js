@@ -456,3 +456,66 @@ function testLongestPositiveDayRun() {
 
 testLongestGoldenPhiStreak();
 testLongestPositiveDayRun();
+
+function testHattrickBadge() {
+    console.log('\n=== Testing hattrickCount ===\n');
+    const HOUR = 60 * 60 * 1000;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const today = todayStart.getTime();
+
+    const matches = [
+        // Today: Alice wins with 3 consecutive red goals → hat trick
+        {
+            id: 'ht-yes',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20,
+            timestamp: today + HOUR,
+            goalLog: buildGoalLog(['red', 'blue', 'red', 'red', 'red', 'blue', 'red']),
+        },
+        // Today: Alice wins but goals alternate — no hat trick
+        {
+            id: 'ht-no',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 20,
+            timestamp: today + 2 * HOUR,
+            goalLog: buildGoalLog(['red', 'blue', 'red', 'blue', 'red', 'blue', 'red', 'blue', 'red']),
+        },
+        // Today: Bob wins with a hat trick but Alice loses — should not count for Alice
+        {
+            id: 'ht-loser',
+            teamA: ['Bob'], teamB: ['Alice'],
+            winner: 'A', goalsA: 5, goalsB: 1, eloDelta: 20,
+            timestamp: today + 3 * HOUR,
+            goalLog: buildGoalLog(['red', 'red', 'red', 'blue', 'red', 'red']),
+        },
+        // Yesterday: Alice wins with hat trick — should not count (not today)
+        {
+            id: 'ht-yesterday',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 0, eloDelta: 20,
+            timestamp: today - HOUR,
+            goalLog: buildGoalLog(['red', 'red', 'red', 'red', 'red']),
+        },
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const { players: stats } = computeAllPlayerStats(matches);
+    const alice = stats['Alice'];
+    const bob = stats['Bob'];
+
+    if (!alice) throw new Error('Alice missing from stats');
+    if (!bob) throw new Error('Bob missing from stats');
+
+    // Alice should have exactly 1 hat trick (ht-yes), not ht-no, ht-loser, or ht-yesterday
+    if (alice.statusEvents.hattrickCount !== 1) {
+        throw new Error(`Expected Alice hattrickCount=1, got ${alice.statusEvents.hattrickCount}`);
+    }
+    // Bob wins ht-loser with a hat trick today
+    if (bob.statusEvents.hattrickCount !== 1) {
+        throw new Error(`Expected Bob hattrickCount=1, got ${bob.statusEvents.hattrickCount}`);
+    }
+
+    console.log('✓ hattrickCount increments only for today\'s winners with 3 consecutive goals');
+}
+
+testHattrickBadge();
