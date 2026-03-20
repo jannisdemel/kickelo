@@ -166,6 +166,14 @@ function getSortValue(player, stats, sortBy) {
             if (!stats || !stats.longestStreaks) return 0;
             return stats.longestStreaks.longestWinStreak || 0;
         }
+        case 'longestGoldenStreak': {
+            if (!stats) return 0;
+            return stats.longestGoldenPhiStreak || 0;
+        }
+        case 'longestPositiveDayRun': {
+            if (!stats) return 0;
+            return stats.longestPositiveDayRun || 0;
+        }
         default:
             return STARTING_ELO;
     }
@@ -242,6 +250,14 @@ function getDisplayValue(player, stats, sortBy) {
         case 'longestWinStreak': {
             if (!stats || !stats.longestStreaks) return '0';
             return stats.longestStreaks.longestWinStreak || 0;
+        }
+        case 'longestGoldenStreak': {
+            if (!stats) return '0';
+            return stats.longestGoldenPhiStreak || 0;
+        }
+        case 'longestPositiveDayRun': {
+            if (!stats) return '0';
+            return stats.longestPositiveDayRun || 0;
         }
         default:
             return STARTING_ELO;

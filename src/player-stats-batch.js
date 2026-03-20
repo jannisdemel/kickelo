@@ -102,6 +102,7 @@ export function computeAllPlayerStats(matches, options = {}) {
         stats[playerName]._medicEvents = [];
         stats[playerName]._weekdayActivityDays = new Set();
         stats[playerName]._goldenPhiCurrent = 0;
+        stats[playerName]._goldenPhiLongest = 0;
         const initialOpenSkillRating = createOpenSkillRating();
         stats[playerName]._openskillState = initialOpenSkillRating;
         stats[playerName].openskillRating = {
@@ -276,6 +277,7 @@ export function computeAllPlayerStats(matches, options = {}) {
 
             if (playerWasWinner && teamGoals === MAX_GOALS && oppGoals === MAX_GOALS - 1) {
                 s._goldenPhiCurrent = (s._goldenPhiCurrent || 0) + 1;
+                if (s._goldenPhiCurrent > s._goldenPhiLongest) s._goldenPhiLongest = s._goldenPhiCurrent;
             } else if (!playerWasWinner && teamGoals === MAX_GOALS - 1 && oppGoals === MAX_GOALS) {
                 s._goldenPhiCurrent = 0;
             }
@@ -444,6 +446,19 @@ export function computeAllPlayerStats(matches, options = {}) {
     s.medicTeammatesHelped = computeMedicUniqueCount(s._medicEvents, MEDIC_LOOKBACK_MS);
     s.gardenerWeekdayStreak = computeWeekdayActivityStreak(s._weekdayActivityDays);
     s.goldenPhiStreak = s._goldenPhiCurrent || 0;
+    s.longestGoldenPhiStreak = s._goldenPhiLongest || 0;
+
+        // Longest consecutive positive day run (ever)
+        let longestRun = 0, currentRun = 0;
+        for (const { delta } of dailyEntries) {
+            if (delta > 0) {
+                currentRun++;
+                if (currentRun > longestRun) longestRun = currentRun;
+            } else {
+                currentRun = 0;
+            }
+        }
+        s.longestPositiveDayRun = longestRun;
         
         // Remove helper fields
         delete s.streakType;
@@ -467,6 +482,7 @@ export function computeAllPlayerStats(matches, options = {}) {
         delete s._medicEvents;
         delete s._weekdayActivityDays;
         delete s._goldenPhiCurrent;
+        delete s._goldenPhiLongest;
         delete s._openskillState;
     }
     let globalHighestElo = STARTING_ELO;
