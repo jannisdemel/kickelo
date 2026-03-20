@@ -1,4 +1,4 @@
-import { MAX_GOALS, STARTING_ELO, INACTIVE_THRESHOLD_DAYS, BADGE_THRESHOLDS } from "./constants.js";
+import { MAX_GOALS, STARTING_ELO, INACTIVE_THRESHOLD_DAYS, BADGE_THRESHOLDS, CAKE_TEAM } from "./constants.js";
 import { expectedScore, updateRating } from "./elo-service.js";
 import { rate as rateOpenSkill, rating as createOpenSkillRating, ordinal as openskillOrdinal } from "openskill";
 
@@ -84,7 +84,8 @@ export function computeAllPlayerStats(matches, options = {}) {
                 fastWinCount: 0,
                 rollercoasterCount: 0,
                 chillComebackCount: 0,
-                hattrickCount: 0
+                hattrickCount: 0,
+                cakeCount: 0
             },
             dailyDeltas: {},
             alternatingRunLength: 0,
@@ -364,6 +365,18 @@ export function computeAllPlayerStats(matches, options = {}) {
             s.lastResult = result;
             if (result === 'win') s.winCount++;
             else s.lossCount++;
+        }
+
+        // Cake: if CAKE_TEAM players are on the same winning team today, everyone gets cake
+        if (matchIsToday && CAKE_TEAM.length === 2) {
+            const winningTeam = match.winner === 'A' ? match.teamA : match.teamB;
+            if (CAKE_TEAM.every(p => winningTeam.includes(p))) {
+                const waitingPlayers = match.pairingMetadata?.waitingPlayers || [];
+                const allActivePlayers = [...match.teamA, ...match.teamB, ...waitingPlayers];
+                for (const playerId of allActivePlayers) {
+                    if (stats[playerId]) stats[playerId].statusEvents.cakeCount += 1;
+                }
+            }
         }
     }
 

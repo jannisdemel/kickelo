@@ -18,6 +18,7 @@ const BADGE_VALUE_COLORS = {
     '🐕': '#ddb494ff', // underdog
     '📄': '#f0f0f0', // clean sheet/shutout
     '🎩': '#a78bfa', // hat trick
+    '🎂': '#f9a8d4', // cake
     '👑': '#facc15', // all-time highest ELO
     '☕': '#c08457', // fast win
     '🎢': '#fb5624ff', // rollercoaster
@@ -320,6 +321,9 @@ function getStatusBadges(stats) {
     }
     if (events.fastWinCount >= 1) {
         badges.push(formatBadge('☕', events.fastWinCount, 1));
+    }
+    if (events.cakeCount > 0) {
+        badges.push(formatBadge('🎂', events.cakeCount, 1));
     }
 
     if (stats.currentAlternatingRun && stats.currentAlternatingRun >= 7) {
