@@ -1257,6 +1257,21 @@ body.paused > *:not(#pauseOverlay) {
 .activity-heatmap-container {
   margin-top: 24px;
   margin-bottom: 4px;
+}
+
+.activity-heatmap-body {
+  display: flex;
+  align-items: flex-start;
+}
+
+.activity-heatmap-day-labels {
+  flex-shrink: 0;
+  display: block;
+}
+
+.activity-heatmap-scroll {
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
@@ -1265,7 +1280,12 @@ body.paused > *:not(#pauseOverlay) {
 
 .activity-heatmap-svg {
   display: block;
-  margin: 0 auto;
+}
+
+.activity-heatmap-legend {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
 }
 
 .heatmap-label {
