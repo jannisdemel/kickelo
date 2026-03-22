@@ -16,6 +16,7 @@ import {
 } from './dom-elements.js';
 import { MAX_GOALS, STARTING_ELO } from './constants.js';
 import { evaluateLastSuggestion, clearLastSuggestion } from './pairing-service.js';
+import { showToast, showConfirm } from './toast.js';
 
 function buildWaitingPlayers(activePlayers = [], teamA = [], teamB = []) {
     if (!Array.isArray(activePlayers) || activePlayers.length === 0) return [];
@@ -73,20 +74,20 @@ export function setupMatchForm() {
             const goalsA = teamAgoalsInput.value.trim();
             const goalsB = teamBgoalsInput.value.trim();
             if (!/^[0-9]+$/.test(goalsA) || !/^[0-9]+$/.test(goalsB)) {
-                return alert("Goals must be valid numbers.");
+                return showToast("Goals must be valid numbers.", 'error');
             }
             parsedGoalsA = parseInt(goalsA, 10);
             parsedGoalsB = parseInt(goalsB, 10);
         }
         if (parsedGoalsA === parsedGoalsB) {
-            return alert("Cannot submit a tie.");
+            return showToast("Cannot submit a tie.", 'error');
         }
         if (parsedGoalsA > MAX_GOALS || parsedGoalsB > MAX_GOALS) {
-            return alert(`Goals cannot exceed ${MAX_GOALS}.`);
+            return showToast(`Goals cannot exceed ${MAX_GOALS}.`, 'error');
         }
         // Enforce that one team has exactly MAX_GOALS and the other less
         if (!(parsedGoalsA === MAX_GOALS && parsedGoalsB < MAX_GOALS) && !(parsedGoalsB === MAX_GOALS && parsedGoalsA < MAX_GOALS)) {
-            return alert(`One team must have exactly ${MAX_GOALS} goals, the other less.`);
+            return showToast(`One team must have exactly ${MAX_GOALS} goals, the other less.`, 'error');
         }
 
         // --- Build teams, allow 1v1 or 2v2 ---
@@ -112,23 +113,24 @@ export function setupMatchForm() {
 
         // Validation: at least one player per team
         if (teamA.length === 0 || teamB.length === 0) {
-            return alert("Each team must have at least one player.");
+            return showToast("Each team must have at least one player.", 'error');
         }
         // Validation: no player can be on both teams
         const allPlayers = [...teamA, ...teamB];
         const uniquePlayers = new Set(allPlayers);
         if (uniquePlayers.size < allPlayers.length) {
-            return alert("A player cannot play on both teams.");
+            return showToast("A player cannot play on both teams.", 'error');
         }
         // Validation: Ensure equal team sizes
         if (teamA.length !== teamB.length) {
-            return alert("Both teams must have the same number of players (1v1 or 2v2).");
+            return showToast("Both teams must have the same number of players (1v1 or 2v2).", 'error');
         }
 
         if (requiresPositionConfirmation() && !isPositionConfirmationChecked()) {
-            const proceedWithoutPositions = confirm(
+            const proceedWithoutPositions = await showConfirm(
                 "You haven't confirmed the offense/defense positions. Submit anyway without logging them?\n\n" +
-                "If you want them recorded, check the 'Positions confirmed' box below the player selects before submitting."
+                "If you want them recorded, check the 'Positions confirmed' box below the player selects before submitting.",
+                { confirmLabel: 'Submit anyway', cancelLabel: 'Go back', type: 'warning' }
             );
             if (!proceedWithoutPositions) {
                 positionsConfirmedCheckbox?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -162,7 +164,7 @@ export function setupMatchForm() {
         const loserGoals = winner === "A" ? parsedGoalsB : parsedGoalsA;
         const seasonLabel = season?.name ? ` (${season.name})` : '';
         const message = `Confirm match submission:\n\nWinners: ${winnerNames}\nLosers: ${loserNames}\nScore: ${winnerGoals}:${loserGoals}\nElo change${seasonLabel}: ${eloChange}\n\nDo you want to submit this match?`;
-        if (!confirm(message)) {
+        if (!await showConfirm(message, { confirmLabel: 'Submit', cancelLabel: 'Cancel' })) {
             return;
         }
 
@@ -207,14 +209,38 @@ export function setupMatchForm() {
             const matchDocRef = await addDoc(matchesColRef, matchData);
             clearLastSuggestion();
 
-            alert("Match submitted!");
+            // 3. If vibration tracking enabled, upload log to Storage and update match doc
+            if (vibrationTrackingEnabled && vibrationLog.length > 0) {
+                try {
+                    uploadIndicator.style.display = 'flex';
+                    const { storage, storageRef } = await import('./firebase-service.js');
+                    const logPath = `vibrationLogs/${matchDocRef.id}.json`;
+                    const fileRef = storageRef(storage, logPath);
+                    const logBlob = new Blob([JSON.stringify(vibrationLog)], { type: 'application/json' });
+                    await (await import('firebase/storage')).uploadBytes(fileRef, logBlob);
+                    await updateDoc(matchDocRef, { vibrationLogPath: logPath });
+                    // wait for a second to admire the loading animation
+                    await new Promise(res => setTimeout(res, 1000));
+                    console.log("Vibration log uploaded successfully.");
+                } catch (uploadError) {
+                    console.log("Vibration log upload failed:", uploadError.message || uploadError);
+                    showToast("Vibration log upload failed. Match was still submitted, but without vibration log.", 'warning');
+                } finally {
+                    uploadIndicator.style.display = 'none';
+                    stopVibrationTracking();
+                    // wait until uploadIndicator is hidden
+                    await new Promise(res => setTimeout(res, 300));
+                }
+            }
+
+            showToast("Match submitted!", 'success');
             resetMatchForm();
             setLiveMode(false, true); // Reset to final score mode after submit
             stopLiveMatchTimer(); // Stop timer after submit
         } catch (error) {
             console.error("Error submitting match:", error.message || error);
 
-            alert("Failed to submit match. Check the console for more details.");
+            showToast("Failed to submit match. Check the console for more details.", 'error');
         }
     });
 }
@@ -290,6 +316,89 @@ document.getElementById("teamBgoals").addEventListener("change", function () {
   other_goal_dropdown.value = String(MAX_GOALS);
 });
 
+// --- Experimental Vibration Tracking ---
+let vibrationTrackingEnabled = false;
+let vibrationLog = [];
+let vibrationListener = null;
+let vibrationDrawInterval = null;
+
+function promptVibrationTracking() {
+    return showConfirm(
+        'Enable vibration tracking for this match? (Experimental)\n\nThis will record accelerometer data while live mode is active.',
+        { confirmLabel: 'Enable', cancelLabel: 'Skip', type: 'info' }
+    );
+}
+
+function startVibrationTracking() {
+    console.log("Starting vibration tracking...");
+    vibrationTrackingEnabled = true;
+    vibrationLog = [];
+    if (!window.DeviceMotionEvent) {
+        console.error('DeviceMotion API not supported on this device/browser.');
+        showToast('DeviceMotion API not supported on this device/browser.', 'warning');
+        vibrationTrackingEnabled = false;
+        return;
+    }
+    vibrationSeismograph.style.display = '';
+    // Listen for device motion events
+    vibrationListener = function(event) {
+        // console.log(event);
+        const { x, y, z } = event.acceleration || {};
+        if (x == null || y == null || z == null) {
+            console.warn('Incomplete accelerometer data received.');
+            return;
+        }
+        vibrationLog.push({
+            t: Date.now(),
+            x, y, z
+        });
+    };
+    window.addEventListener('devicemotion', vibrationListener);
+    // Start drawing the seismograph
+    vibrationDrawInterval = setInterval(drawVibrationSeismograph, 50);
+}
+
+function stopVibrationTracking() {
+    console.log("Stopping vibration tracking...");
+    if (vibrationListener) {
+        window.removeEventListener('devicemotion', vibrationListener);
+        vibrationListener = null;
+    }
+    if (vibrationDrawInterval) {
+        clearInterval(vibrationDrawInterval);
+        vibrationDrawInterval = null;
+    }
+    vibrationSeismograph.style.display = 'none';
+    vibrationTrackingEnabled = false;
+}
+
+function drawVibrationSeismograph() {
+    const ctx = vibrationSeismograph.getContext('2d');
+    const width = vibrationSeismograph.width;
+    const height = vibrationSeismograph.height;
+    ctx.clearRect(0, 0, width, height);
+    // Show last 10 seconds
+    const now = Date.now();
+    const windowMs = 10000;
+    const minT = now - windowMs;
+    const samples = vibrationLog.filter(d => d.t >= minT);
+    if (samples.length < 2) return;
+    // Compute magnitude
+    const mags = samples.map(d => Math.sqrt(d.x*d.x + d.y*d.y + d.z*d.z));
+    // Normalize
+    const maxMag = Math.max(1, ...mags);
+    ctx.strokeStyle = '#6cabc2';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < samples.length; ++i) {
+        const x = (samples[i].t - minT) / windowMs * width;
+        const y = height - (mags[i] / maxMag) * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+}
+
 // --- Live Mode Integration ---
 let liveMode = false;
 let goalLog = [];
@@ -299,7 +408,7 @@ let liveTimerInterval = null; // Timer interval for live match
 async function setLiveMode(enabled, skipPrompt = false) {
     if (enabled === liveMode) return;
     if (!enabled && goalLog.length > 0 && !skipPrompt) {
-        if (!confirm('Switching to Final Score Mode will discard the live goal log. Continue?')) return;
+        if (!await showConfirm('Switching to Final Score Mode will discard the live goal log. Continue?', { confirmLabel: 'Discard', cancelLabel: 'Keep playing', type: 'warning' })) return;
         goalLog = [];
     }
     liveMode = enabled;
@@ -403,8 +512,8 @@ function renderGoalTimeline() {
         btn.type = 'button';
         btn.title = 'Remove this goal';
         btn.innerHTML = '&times;';
-        btn.onclick = () => {
-            if (confirm('Remove this goal from the log?')) {
+        btn.onclick = async () => {
+            if (await showConfirm('Remove this goal from the log?', { confirmLabel: 'Remove', cancelLabel: 'Keep', type: 'warning' })) {
                 goalLog.splice(idx, 1);
                 renderGoalTimeline();
                 syncScoreSelectors();

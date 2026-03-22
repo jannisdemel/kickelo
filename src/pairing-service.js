@@ -4,6 +4,7 @@ import { teamA1Select, teamA2Select, teamB1Select, teamB2Select } from './dom-el
 import { notifyRolesChanged } from "./match-form-handler.js";
 import { getCachedStats, isCacheReady } from './stats-cache-service.js';
 import { STARTING_ELO, SESSION_GAP_MS } from './constants.js';
+import { showToast } from './toast.js';
 
 const SUGGESTION_TTL = SESSION_GAP_MS;
 
@@ -12,7 +13,91 @@ const WAITING_KARMA_DEFAULTS = {
   durationInfluence: 0,
 };
 
+const TOP_SCORE_EPSILON = 1e-6;
+const INTER_TEAM_ELO_SCALE = 80;
+const PAIRING_DEBUG_STORAGE_KEY = 'kickeloPairingDebug';
+
 let lastSuggestion = null;
+
+function isPairingDebugEnabled() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    const storageFlag = window.localStorage?.getItem(PAIRING_DEBUG_STORAGE_KEY);
+    if (storageFlag === '1') {
+      return true;
+    }
+
+    const queryFlag = new URLSearchParams(window.location.search).get('pairingDebug');
+    return queryFlag === '1';
+  } catch {
+    return false;
+  }
+}
+
+function logPairingDebug({
+  activePlayers,
+  playsCount,
+  waitingKarmaMap,
+  uniformPlayCounts,
+  topScoredCandidates,
+  weightedCandidates,
+  chosen,
+  randomValue,
+}) {
+  if (!isPairingDebugEnabled()) {
+    return;
+  }
+
+  const totalWeight = weightedCandidates.reduce((sum, candidate) => {
+    const weight = Number.isFinite(candidate?.sampleWeight) ? candidate.sampleWeight : 0;
+    return sum + Math.max(0, weight);
+  }, 0);
+
+  const chosenWeight = Number.isFinite(chosen?.sampleWeight) ? chosen.sampleWeight : 0;
+  const chosenProbabilityPct = totalWeight > 0
+    ? (chosenWeight / totalWeight) * 100
+    : 0;
+
+  const topCandidatesTable = weightedCandidates
+    .slice()
+    .sort((a, b) => {
+      const weightDiff = (b.sampleWeight || 0) - (a.sampleWeight || 0);
+      if (weightDiff !== 0) return weightDiff;
+      const eloDiffGap = (a.interTeamEloDiff || 0) - (b.interTeamEloDiff || 0);
+      if (eloDiffGap !== 0) return eloDiffGap;
+      return (b.score || 0) - (a.score || 0);
+    })
+    .map((candidate, index) => ({
+      rank: index + 1,
+      pairing: `[${candidate.pairing.teamA.join(', ')}] vs [${candidate.pairing.teamB.join(', ')}]`,
+      score: candidate.score,
+      interTeamEloDiff: candidate.interTeamEloDiff,
+      sampleWeight: Number(candidate.sampleWeight?.toFixed(4) || 0),
+      probabilityPct: Number((totalWeight > 0 ? (candidate.sampleWeight / totalWeight) * 100 : 0).toFixed(2)),
+    }));
+
+  console.groupCollapsed('[Pairing Debug] Suggestion');
+  console.log('Summary', {
+    activePlayers,
+    uniformPlayCounts,
+    playsCount,
+    waitingKarmaMap,
+    topScore: topScoredCandidates[0]?.score ?? null,
+    topScoreBandSize: topScoredCandidates.length,
+    weightedCandidateCount: weightedCandidates.length,
+    randomValue: Number(randomValue.toFixed(6)),
+    chosenPairing: chosen
+      ? `[${chosen.pairing.teamA.join(', ')}] vs [${chosen.pairing.teamB.join(', ')}]`
+      : null,
+    chosenInterTeamEloDiff: chosen?.interTeamEloDiff ?? null,
+    chosenProbabilityPct: Number(chosenProbabilityPct.toFixed(2)),
+  });
+  console.table(topCandidatesTable);
+  console.groupEnd();
+}
 
 function getSeasonElo(playerName) {
   if (!isCacheReady()) {
@@ -263,6 +348,14 @@ function countPlaysPerPlayer(sessionMatches, activePlayers) {
   return count;
 }
 
+function hasUniformPlayCounts(playsCount, activePlayers) {
+  return new Set(
+    (activePlayers || []).map(player => (
+      Number.isFinite(playsCount?.[player]) ? playsCount[player] : 0
+    ))
+  ).size <= 1;
+}
+
 function buildCoAndOppCounts(matches, activePlayers) {
   const withCount = {}, againstCount = {};
   activePlayers.forEach(a => {
@@ -317,6 +410,18 @@ function generatePairings(activePlayers) {
   return pairings;
 }
 
+function getPairingEloDiffs(teamA, teamB, eloMap) {
+  const eloA0 = eloMap[teamA[0]];
+  const eloA1 = eloMap[teamA[1]];
+  const eloB0 = eloMap[teamB[0]];
+  const eloB1 = eloMap[teamB[1]];
+
+  const intraDiff = Math.abs(eloA0 - eloA1) + Math.abs(eloB0 - eloB1);
+  const interDiff = Math.abs((eloA0 + eloA1) / 2 - (eloB0 + eloB1) / 2);
+
+  return { intraDiff, interDiff };
+}
+
 function scorePairing(p, data) {
   const {
     playsCount,
@@ -351,11 +456,7 @@ function scorePairing(p, data) {
   let oppRepHist = 0;
   teamA.forEach(a => teamB.forEach(b => { oppRepHist += countsHistoric.againstCount[a][b]; }));
 
-  const eloA0 = eloMap[teamA[0]], eloA1 = eloMap[teamA[1]];
-  const eloB0 = eloMap[teamB[0]], eloB1 = eloMap[teamB[1]];
-
-  const intraDiff = Math.abs(eloA0 - eloA1) + Math.abs(eloB0 - eloB1);
-  const interDiff = Math.abs((eloA0 + eloA1) / 2 - (eloB0 + eloB1) / 2);
+  const { intraDiff, interDiff } = getPairingEloDiffs(teamA, teamB, eloMap);
 
   const karmaSum = [...teamA, ...teamB].reduce((sum, player) => sum + (waitingKarmaMap[player] || 0), 0);
 
@@ -371,11 +472,46 @@ function scorePairing(p, data) {
   // console.log(`  Teammate repeats - session: ${repSess}, historic: ${repHist}`);
   // console.log(`  Opponent repeats - session: ${oppRepSess}, historic: ${
   // oppRepHist}`);
-  // console.log(`  Elo A: ${eloA0}, ${eloA1}; Elo B: ${eloB0}, ${eloB1}`);
-  // console.log(`  Intra-team Elo diff: ${Math.abs(eloA0 - eloA1)} + ${Math.abs(eloB0 - eloB1)} = ${Math.abs(eloA0 - eloA1) + Math.abs(eloB0 - eloB1)}`);
-  // console.log(`  Inter-team Elo diff: |${(eloA0 + eloA1) / 2} - ${(eloB0 + eloB1) / 2}| = ${Math.abs((eloA0 + eloA1) / 2 - (eloB0 + eloB1) / 2)}`);
+  // console.log(`  Intra-team Elo diff: ${intraDiff}`);
+  // console.log(`  Inter-team Elo diff: ${interDiff}`);
 
   return score;
+}
+
+function sampleTopFairnessCandidates(scoredCandidates, randomValue) {
+  if (!scoredCandidates.length) {
+    return { topScoredCandidates: [], weightedCandidates: [], chosen: null };
+  }
+
+  const topScore = scoredCandidates[0].score;
+  const topScoredCandidates = scoredCandidates.filter(candidate =>
+    (topScore - candidate.score) <= TOP_SCORE_EPSILON
+  );
+
+  const weightedCandidates = topScoredCandidates.map(candidate => ({
+    ...candidate,
+    sampleWeight: Math.exp(-candidate.interTeamEloDiff / INTER_TEAM_ELO_SCALE),
+  }));
+
+  const safeRandomValue = Number.isFinite(randomValue)
+    ? Math.min(Math.max(randomValue, 0), 1 - Number.EPSILON)
+    : 0;
+  const totalWeight = weightedCandidates.reduce((sum, candidate) => sum + candidate.sampleWeight, 0);
+  const target = safeRandomValue * totalWeight;
+
+  let cumulative = 0;
+  for (const candidate of weightedCandidates) {
+    cumulative += candidate.sampleWeight;
+    if (target <= cumulative) {
+      return { topScoredCandidates, weightedCandidates, chosen: candidate };
+    }
+  }
+
+  return {
+    topScoredCandidates,
+    weightedCandidates,
+    chosen: weightedCandidates[weightedCandidates.length - 1] || null,
+  };
 }
 
 function buildSideCounts(matches) {
@@ -405,7 +541,7 @@ export async function suggestPairing() {
   const activePlayers = (sessDocSnap.exists() && sessDocSnap.data().activePlayers) || [];
   
   if (activePlayers.length < 4) {
-      alert("Please select at least 4 active players to suggest a pairing.");
+      showToast("Please select at least 4 active players to suggest a pairing.", 'warning');
       return;
   }
 
@@ -417,8 +553,10 @@ export async function suggestPairing() {
   const countsSession = buildCoAndOppCounts(sessionMatches, activePlayers);
   const countsHistoric = buildCoAndOppCounts(historicMatches, activePlayers);
   const waitingKarmaMap = computeWaitingKarma(sessionMatches, activePlayers, WAITING_KARMA_DEFAULTS);
-
-  console.log("Waiting Karma Map:", waitingKarmaMap);
+  const uniformPlayCounts = hasUniformPlayCounts(playsCount, activePlayers);
+  const effectiveWaitingKarmaMap = uniformPlayCounts
+    ? {}
+    : waitingKarmaMap;
 
   const eloMap = {};
   activePlayers.forEach(playerId => {
@@ -426,33 +564,35 @@ export async function suggestPairing() {
   });
 
   const data = {
-      playsCount,
-      countsSession,
-      countsHistoric,
-  eloMap,
-  waitingKarmaMap
+    playsCount,
+    countsSession,
+    countsHistoric,
+    eloMap,
+    waitingKarmaMap: effectiveWaitingKarmaMap
   };
 
   const candidates = generatePairings(activePlayers);
   if (candidates.length === 0) {
-      alert("Could not generate any pairings with the selected active players.");
+      showToast("Could not generate any pairings with the selected active players.", 'warning');
       return;
   }
 
-  const scored = candidates.map(p => ({
+  const scored = candidates.map(p => {
+    const { interDiff } = getPairingEloDiffs(p.teamA, p.teamB, data.eloMap);
+    return {
       pairing: p,
-      score: scorePairing(p, data)
-  }));
+      score: scorePairing(p, data),
+      interTeamEloDiff: interDiff
+    };
+  });
   scored.sort((a, b) => b.score - a.score);
 
-  // Take the best scoring pairing. If there's a tie, choose a random one among the best with a seeded random.
+  // Sample one candidate with deterministic seeded randomness.
+  // Base score keeps repeat/karma pressure; Elo gap shapes probabilities.
   // Use the active players + a session key as a seed for reproducibility across devices.
   // The session key changes between sessions (based on the first match in-session, or the latest match timestamp
   // when the session hasn't started yet), so the same active players can yield a different first suggestion
   // in a new session.
-  const bestScore = scored[0].score;
-  const bestCandidates = scored.filter(s => s.score === bestScore);
-  
   const sessionStartTimestamp = (sessionMatches.length > 0 && typeof sessionMatches[0].timestamp === 'number')
     ? sessionMatches[0].timestamp
     : null;
@@ -475,9 +615,24 @@ export async function suggestPairing() {
     const x = Math.sin(seed) * 10000;
     return x - Math.floor(x);
   };
-  
-  const randomIndex = Math.floor(seededRandom(seed + sessionMatches.length) * bestCandidates.length);
-  const best = bestCandidates[randomIndex].pairing;
+
+  const randomValue = seededRandom(seed + sessionMatches.length);
+  const {
+    topScoredCandidates,
+    weightedCandidates,
+    chosen
+  } = sampleTopFairnessCandidates(scored, randomValue);
+  logPairingDebug({
+    activePlayers,
+    playsCount,
+    waitingKarmaMap: effectiveWaitingKarmaMap,
+    uniformPlayCounts,
+    topScoredCandidates,
+    weightedCandidates,
+    chosen,
+    randomValue,
+  });
+  const best = (chosen || scored[0]).pairing;
   const { countA, countB } = buildSideCounts(chronologicalMatches);
   const { teamA, teamB } = best;
 

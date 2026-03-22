@@ -99,7 +99,9 @@ export function computeAllPlayerStats(matches, options = {}) {
             openskillRating: null,
             roleElo: { offense: STARTING_ELO, defense: STARTING_ELO },
             roleEloTrajectory: { offense: [], defense: [] },
-            roleGames: { offense: 0, defense: 0 }
+            roleGames: { offense: 0, defense: 0 },
+            _wallStreak: 0,
+            wallStreak: 0
         };
         stats[playerName]._medicEvents = [];
         stats[playerName]._weekdayActivityDays = new Set();
@@ -360,6 +362,18 @@ export function computeAllPlayerStats(matches, options = {}) {
                 if (team === 'A' ? hattrickA : hattrickB) s.statusEvents.hattrickCount += 1;
             }
 
+            // Wall badge: track consecutive defense games conceding 0 or 1 goals
+            if (includeRoleBasedElo && teamPlayers.length === 2) {
+                const isDefense = teamPlayers[0] === playerId;
+                if (isDefense) {
+                    if (oppGoals <= 1) {
+                        s._wallStreak++;
+                    } else {
+                        s._wallStreak = 0;
+                    }
+                }
+            }
+
             // Streakyness
             if (s.lastResult !== null && s.lastResult === result) s.consecutiveSame++;
             s.lastResult = result;
@@ -476,6 +490,7 @@ export function computeAllPlayerStats(matches, options = {}) {
             }
         }
         s.longestPositiveDayRun = longestRun;
+        s.wallStreak = s._wallStreak || 0;
         
         // Remove helper fields
         delete s.streakType;
@@ -501,6 +516,7 @@ export function computeAllPlayerStats(matches, options = {}) {
         delete s._goldenPhiCurrent;
         delete s._goldenPhiLongest;
         delete s._openskillState;
+        delete s._wallStreak;
     }
     let globalHighestElo = STARTING_ELO;
     for (const playerName of players) {

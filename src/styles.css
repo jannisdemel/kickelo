@@ -734,10 +734,21 @@ button:hover {
   box-shadow: none;
   transition: transform 130ms ease, background-color 130ms ease, color 130ms ease, border-color 130ms ease;
   touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
 }
-#activeModal .player-tile:hover {
-  background: var(--hover-color);
-  color: var(--text-color-primary);
+@media (hover: hover) {
+  #activeModal .player-tile:hover {
+    background: var(--hover-color);
+    color: var(--text-color-primary);
+  }
+}
+@media (hover: none) {
+  #activeModal .player-tile:hover {
+    background: #3a3a3a;
+  }
+  #activeModal .player-tile.selected:hover {
+    background: var(--dark-blue);
+  }
 }
 
 #activeModal .player-tile.inactive {
@@ -1197,3 +1208,177 @@ body.paused > *:not(#pauseOverlay) {
   display: none !important;
 }
 
+
+/* =============================
+   Toast Notifications
+   ============================= */
+#toastContainer {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  width: 90%;
+  max-width: 420px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.95em;
+  color: #f0f0f0;
+  background: #2a2a2a;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-12px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.toast-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  font-size: 1.15em;
+}
+
+.toast-info { border-left: 3px solid var(--accent-blue, #6cabc2); }
+.toast-success { border-left: 3px solid #4ade80; }
+.toast-error { border-left: 3px solid #f87171; }
+.toast-warning { border-left: 3px solid #facc15; }
+
+
+/* =============================
+   Activity Heatmap
+   ============================= */
+.activity-heatmap-container {
+  margin-top: 24px;
+  margin-bottom: 4px;
+}
+
+.activity-heatmap-body {
+  display: flex;
+  align-items: flex-start;
+}
+
+.activity-heatmap-day-labels {
+  flex-shrink: 0;
+  display: block;
+}
+
+.activity-heatmap-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+
+.activity-heatmap-svg {
+  display: block;
+}
+
+.activity-heatmap-legend {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.heatmap-label {
+  fill: var(--text-color-secondary, #aaa);
+  font-size: 9px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+
+/* =============================
+   Confirm Dialog
+   ============================= */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 25000;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.confirm-backdrop.confirm-visible {
+  opacity: 1;
+}
+
+.confirm-dialog {
+  background: #2a2a2a;
+  border-radius: 10px;
+  padding: 20px 24px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  transform: scale(0.95);
+  transition: transform 0.2s ease;
+}
+
+.confirm-visible .confirm-dialog {
+  transform: scale(1);
+}
+
+.confirm-info  { border-top: 3px solid var(--accent-blue, #6cabc2); }
+.confirm-warning { border-top: 3px solid #facc15; }
+
+.confirm-message {
+  color: #e0e0e0;
+  font-size: 0.95em;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.confirm-btn {
+  padding: 8px 18px;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.confirm-btn-cancel {
+  background: var(--gray-medium, #444);
+  color: var(--text-color-secondary, #aaa);
+}
+
+.confirm-btn-cancel:hover {
+  background: var(--hover-color, #555);
+}
+
+.confirm-btn-ok {
+  background: var(--accent-blue, #6cabc2);
+  color: #fff;
+}
+
+.confirm-btn-ok:hover {
+  background: #5a9aaf;
+}

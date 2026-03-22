@@ -70,48 +70,95 @@ function renderPlayerTiles(players, selectedPlayers, recentActivePlayers, onSele
         tile.setAttribute('tabindex', '0');
         setTileSelected(tile, selectedPlayers.has(name));
 
+        // --- Interaction: mouse click toggles, touch swipe selects/deselects ---
+        // CSS has touch-action: pan-y on .player-tile, so:
+        //   vertical drag → browser scrolls, fires pointercancel
+        //   horizontal drag → we get pointermove events
+        const SWIPE_THRESHOLD = 24;
         let startX = 0;
-        let startY = 0;
-        let pointerActive = false;
+        let ptrType = '';
+        let ptrActive = false;
         let didSwipe = false;
+        let lastDx = 0;
 
         tile.addEventListener('pointerdown', (event) => {
-            pointerActive = true;
-            didSwipe = false;
+            if (!event.isPrimary) return;
             startX = event.clientX;
-            startY = event.clientY;
-            tile.setPointerCapture?.(event.pointerId);
+            ptrType = event.pointerType;
+            ptrActive = true;
+            didSwipe = false;
+            lastDx = 0;
         });
 
         tile.addEventListener('pointermove', (event) => {
-            if (!pointerActive) return;
+            if (!ptrActive || ptrType === 'mouse') return;
+
             const dx = event.clientX - startX;
-            const dy = event.clientY - startY;
-            if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) {
-                if (dx > 24 && !selectedPlayers.has(name)) {
-                    selectedPlayers.add(name);
-                    setTileSelected(tile, true);
-                    onSelectionChange();
-                }
+            lastDx = dx;
+            const isSelected = selectedPlayers.has(name);
+
+            // Live-drag the tile under the finger
+            tile.style.transition = 'background-color 80ms ease';
+            tile.style.transform = isSelected
+                ? `translateX(calc(50% + ${dx}px))`
+                : `translateX(${dx}px)`;
+
+            // Color hint once past threshold
+            if (dx > SWIPE_THRESHOLD && !isSelected) {
+                tile.style.backgroundColor = 'var(--dark-blue)';
+            } else if (dx < -SWIPE_THRESHOLD && isSelected) {
+                tile.style.backgroundColor = '#3a3a3a';
+            } else {
+                tile.style.backgroundColor = '';
+            }
+
+            if (Math.abs(dx) > SWIPE_THRESHOLD) {
                 didSwipe = true;
-                event.preventDefault();
             }
         });
 
-        const endPointer = (event) => {
-            if (!pointerActive) return;
-            pointerActive = false;
-            if (!didSwipe) {
+        const endPointer = () => {
+            if (!ptrActive) return;
+            ptrActive = false;
+
+            if (ptrType === 'mouse') {
+                // Mouse: precise click → toggle
                 toggleSelected(name, tile);
+                return;
             }
-            try {
-                tile.releasePointerCapture?.(event.pointerId);
-            } catch (err) {
+
+            // Touch: evaluate swipe direction
+            const isSelected = selectedPlayers.has(name);
+
+            if (didSwipe && lastDx > SWIPE_THRESHOLD && !isSelected) {
+                // Swipe right on unselected → select
+                selectedPlayers.add(name);
+                setTileSelected(tile, true);
+                onSelectionChange();
+            } else if (didSwipe && lastDx < -SWIPE_THRESHOLD && isSelected) {
+                // Swipe left on selected → deselect
+                selectedPlayers.delete(name);
+                setTileSelected(tile, false);
+                onSelectionChange();
             }
+
+            // Animate back to class-driven resting position
+            tile.style.backgroundColor = '';
+            requestAnimationFrame(() => {
+                tile.style.transition = '';
+                tile.style.transform = '';
+            });
         };
 
         tile.addEventListener('pointerup', endPointer);
-        tile.addEventListener('pointercancel', endPointer);
+        tile.addEventListener('pointercancel', () => {
+            // Browser took over (vertical scroll) — snap back instantly
+            ptrActive = false;
+            tile.style.transition = 'none';
+            tile.style.transform = '';
+            tile.style.backgroundColor = '';
+            requestAnimationFrame(() => { tile.style.transition = ''; });
+        });
 
         tile.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' || event.key === ' ') {
