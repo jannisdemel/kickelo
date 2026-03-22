@@ -1,4 +1,4 @@
-import { MAX_GOALS, STARTING_ELO, INACTIVE_THRESHOLD_DAYS, BADGE_THRESHOLDS } from "./constants.js";
+import { MAX_GOALS, STARTING_ELO, INACTIVE_THRESHOLD_DAYS, BADGE_THRESHOLDS, CAKE_TEAM } from "./constants.js";
 import { expectedScore, updateRating } from "./elo-service.js";
 import { rate as rateOpenSkill, rating as createOpenSkillRating, ordinal as openskillOrdinal } from "openskill";
 
@@ -83,7 +83,9 @@ export function computeAllPlayerStats(matches, options = {}) {
                 shutoutCount: 0,
                 fastWinCount: 0,
                 rollercoasterCount: 0,
-                chillComebackCount: 0
+                chillComebackCount: 0,
+                hattrickCount: 0,
+                cakeCount: 0
             },
             dailyDeltas: {},
             alternatingRunLength: 0,
@@ -104,6 +106,7 @@ export function computeAllPlayerStats(matches, options = {}) {
         stats[playerName]._medicEvents = [];
         stats[playerName]._weekdayActivityDays = new Set();
         stats[playerName]._goldenPhiCurrent = 0;
+        stats[playerName]._goldenPhiLongest = 0;
         const initialOpenSkillRating = createOpenSkillRating();
         stats[playerName]._openskillState = initialOpenSkillRating;
         stats[playerName].openskillRating = {
@@ -192,6 +195,8 @@ export function computeAllPlayerStats(matches, options = {}) {
         const losingGoals = match.winner === 'A' ? match.goalsB : match.goalsA;
         const isShutoutWin = winningGoals === MAX_GOALS && losingGoals === 0;
         const winnerOppStreakCount = match.winner === 'A' ? streakBreaksAgainstA : streakBreaksAgainstB;
+        const hattrickA = hasGoalLog ? detectHattrick(match.goalLog, 'red') : false;
+        const hattrickB = hasGoalLog ? detectHattrick(match.goalLog, 'blue') : false;
 
         // Only update role-based Elo if positions are confirmed
         const includeRoleBasedElo = match.positionsConfirmed == true;
@@ -278,6 +283,7 @@ export function computeAllPlayerStats(matches, options = {}) {
 
             if (playerWasWinner && teamGoals === MAX_GOALS && oppGoals === MAX_GOALS - 1) {
                 s._goldenPhiCurrent = (s._goldenPhiCurrent || 0) + 1;
+                if (s._goldenPhiCurrent > s._goldenPhiLongest) s._goldenPhiLongest = s._goldenPhiCurrent;
             } else if (!playerWasWinner && teamGoals === MAX_GOALS - 1 && oppGoals === MAX_GOALS) {
                 s._goldenPhiCurrent = 0;
             }
@@ -353,6 +359,7 @@ export function computeAllPlayerStats(matches, options = {}) {
                 if (isFastMatch) s.statusEvents.fastWinCount += 1;
                 if (isRollercoasterWin) s.statusEvents.rollercoasterCount += 1;
                 if (isChillComebackWin) s.statusEvents.chillComebackCount += 1;
+                if (team === 'A' ? hattrickA : hattrickB) s.statusEvents.hattrickCount += 1;
             }
 
             // Wall badge: track consecutive defense games conceding 0 or 1 goals
@@ -372,6 +379,18 @@ export function computeAllPlayerStats(matches, options = {}) {
             s.lastResult = result;
             if (result === 'win') s.winCount++;
             else s.lossCount++;
+        }
+
+        // Cake: if CAKE_TEAM players are on the same winning team today, everyone gets cake
+        if (matchIsToday && CAKE_TEAM.length === 2) {
+            const winningTeam = match.winner === 'A' ? match.teamA : match.teamB;
+            if (CAKE_TEAM.every(p => winningTeam.includes(p))) {
+                const waitingPlayers = match.pairingMetadata?.waitingPlayers || [];
+                const allActivePlayers = [...match.teamA, ...match.teamB, ...waitingPlayers];
+                for (const playerId of allActivePlayers) {
+                    if (stats[playerId]) stats[playerId].statusEvents.cakeCount += 1;
+                }
+            }
         }
     }
 
@@ -458,6 +477,19 @@ export function computeAllPlayerStats(matches, options = {}) {
     s.medicTeammatesHelped = computeMedicUniqueCount(s._medicEvents, MEDIC_LOOKBACK_MS);
     s.gardenerWeekdayStreak = computeWeekdayActivityStreak(s._weekdayActivityDays);
     s.goldenPhiStreak = s._goldenPhiCurrent || 0;
+    s.longestGoldenPhiStreak = s._goldenPhiLongest || 0;
+
+        // Longest consecutive positive day run (ever)
+        let longestRun = 0, currentRun = 0;
+        for (const { delta } of dailyEntries) {
+            if (delta > 0) {
+                currentRun++;
+                if (currentRun > longestRun) longestRun = currentRun;
+            } else {
+                currentRun = 0;
+            }
+        }
+        s.longestPositiveDayRun = longestRun;
         s.wallStreak = s._wallStreak || 0;
         
         // Remove helper fields
@@ -482,6 +514,7 @@ export function computeAllPlayerStats(matches, options = {}) {
         delete s._medicEvents;
         delete s._weekdayActivityDays;
         delete s._goldenPhiCurrent;
+        delete s._goldenPhiLongest;
         delete s._openskillState;
         delete s._wallStreak;
     }
@@ -795,6 +828,22 @@ function detectChillComeback(match, goalLog) {
         else if (goal.team === 'blue') scoreB++;
     }
     return true;
+}
+
+const HATTRICK_WINDOW_MS = 60 * 1000;
+
+function detectHattrick(goalLog, teamColor) {
+    if (!Array.isArray(goalLog) || goalLog.length < 3) return false;
+    let run = [];
+    for (const goal of goalLog) {
+        if (goal.team === teamColor) {
+            run.push(goal.timestamp);
+            if (run.length >= 3 && run[run.length - 1] - run[run.length - 3] <= HATTRICK_WINDOW_MS) return true;
+        } else {
+            run = [];
+        }
+    }
+    return false;
 }
 
 function computeMedicUniqueCount(events, lookbackMs) {

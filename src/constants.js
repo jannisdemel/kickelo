@@ -36,6 +36,9 @@ export const BADGE_THRESHOLDS = Object.freeze({
 });
 
 
+// Cake team: when these two players are on the same winning team, everyone gets cake 🎂
+export const CAKE_TEAM = Object.freeze(['Sarah', 'Simon']);
+
 // Pause configuration
 // Set specific dates when the ELO system should be paused
 // Format: 'YYYY-MM-DD' (e.g., '2025-12-25' for Christmas)

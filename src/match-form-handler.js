@@ -10,7 +10,7 @@ import {
     teamA1Select, teamA2Select, teamB1Select, teamB2Select,
     teamAgoalsInput, teamBgoalsInput, submitMatchBtn,
     toggleLiveMode, liveMatchPanel, btnBlueScored, btnRedScored, goalTimeline, liveModeStatus,
-    vibrationSeismograph, uploadIndicator,
+
     positionConfirmationContainer, positionsConfirmedCheckbox,
     rankedMatchContainer, rankedMatchCheckbox
 } from './dom-elements.js';
@@ -405,24 +405,11 @@ let goalLog = [];
 let matchStartTime = 0;
 let liveTimerInterval = null; // Timer interval for live match
 
-// Refactored setLiveMode to handle vibration tracking natively
 async function setLiveMode(enabled, skipPrompt = false) {
     if (enabled === liveMode) return;
     if (!enabled && goalLog.length > 0 && !skipPrompt) {
         if (!await showConfirm('Switching to Final Score Mode will discard the live goal log. Continue?', { confirmLabel: 'Discard', cancelLabel: 'Keep playing', type: 'warning' })) return;
         goalLog = [];
-    }
-    if (enabled) {
-        // Prompt for vibration tracking
-        const consent = await promptVibrationTracking();
-        // const consent = false; // Disable vibration tracking for now
-        if (consent) {
-            startVibrationTracking();
-        } else {
-            stopVibrationTracking();
-        }
-    } else {
-        stopVibrationTracking();
     }
     liveMode = enabled;
     liveMatchPanel.style.display = enabled ? 'flex' : 'none';

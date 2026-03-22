@@ -303,8 +303,6 @@
     </div>
       <span id="liveModeStatus" style="font-size: 0.9em; color: #888;"></span>
     <div id="liveMatchPanel" style="display: none; flex-direction: column; gap: 8px; margin-bottom: 10px;">
-      <!-- Seismograph visualization canvas -->
-      <canvas id="vibrationSeismograph" width="400" height="60" style="width: 100%; max-width: 400px; height: 60px; margin: 0 auto 8px auto; display: none; background: #181818; border-radius: 6px;"></canvas>
       <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 2px;">
         <span id="liveMatchTimer" style="font-size: 1.2em; font-family: monospace; background: #222; border-radius: 4px; padding: 2.5px 10px; min-width: 60px; text-align: center; display: none;">00:00</span>
         <button id="cancelLiveMode" type="button" style="display: none; background-color: #333">Cancel</button>
@@ -342,6 +340,8 @@
         <option value="avgTimeOpponent">Avg Opponent Goal Time</option>
         <option value="streakiness">Streakiness</option>
         <option value="longestWinStreak">Longest Win Streak</option>
+        <option value="longestGoldenStreak">Longest φ Streak</option>
+        <option value="longestPositiveDayRun">Highest Climber</option>
         <option value="openskill">OpenSkill Rating</option>
         <option value="openskillMuSigma">OpenSkill μ / σ</option>
         <option value="offenseElo">Offense ELO</option>
@@ -388,13 +388,6 @@
     <div id="playerStatsBackdrop" class="modal-backdrop">
     </div>
 
-  <!-- Upload indicator modal -->
-  <div id="uploadIndicator" class="upload-indicator-backdrop">
-    <div class="upload-indicator-modal">
-      <img src="/assets/football.svg" alt="Uploading..." class="upload-indicator-spinner" />
-      <div>Uploading vibration data…</div>
-    </div>
-  </div>
 
   <!-- Pause overlay -->
   <div id="pauseOverlay" class="pause-overlay" style="display: none;">

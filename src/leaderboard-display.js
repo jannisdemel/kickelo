@@ -16,7 +16,9 @@ const BADGE_VALUE_COLORS = {
     '🌊': '#779ae7ff', // streak extinguisher
     '🐍': '#8be47aff', // snake
     '🐕': '#ddb494ff', // underdog
-    '🦏': '#97afd1ff', // rhino/shutout
+    '📄': '#f0f0f0', // clean sheet/shutout
+    '🎩': '#a78bfa', // hat trick
+    '🎂': '#f9a8d4', // cake
     '👑': '#facc15', // all-time highest ELO
     '☕': '#c08457', // fast win
     '🎢': '#fb5624ff', // rollercoaster
@@ -167,6 +169,14 @@ function getSortValue(player, stats, sortBy) {
             if (!stats || !stats.longestStreaks) return 0;
             return stats.longestStreaks.longestWinStreak || 0;
         }
+        case 'longestGoldenStreak': {
+            if (!stats) return 0;
+            return stats.longestGoldenPhiStreak || 0;
+        }
+        case 'longestPositiveDayRun': {
+            if (!stats) return 0;
+            return stats.longestPositiveDayRun || 0;
+        }
         default:
             return STARTING_ELO;
     }
@@ -244,6 +254,14 @@ function getDisplayValue(player, stats, sortBy) {
             if (!stats || !stats.longestStreaks) return '0';
             return stats.longestStreaks.longestWinStreak || 0;
         }
+        case 'longestGoldenStreak': {
+            if (!stats) return '0';
+            return stats.longestGoldenPhiStreak || 0;
+        }
+        case 'longestPositiveDayRun': {
+            if (!stats) return '0';
+            return stats.longestPositiveDayRun || 0;
+        }
         default:
             return STARTING_ELO;
     }
@@ -288,7 +306,10 @@ function getStatusBadges(stats) {
         badges.push(formatBadge('🪃', events.comebackGoalSum, 2));
     }
     if (events.shutoutCount > 0) {
-        badges.push(formatBadge('🦏', events.shutoutCount, 1));
+        badges.push(formatBadge('📄', events.shutoutCount, 1));
+    }
+    if (events.hattrickCount > 0) {
+        badges.push(formatBadge('🎩', events.hattrickCount, 1));
     }
     if (events.underdogPointSum > 0) {
         badges.push(formatBadge('🐕', events.underdogPointSum, 1));
@@ -301,6 +322,9 @@ function getStatusBadges(stats) {
     }
     if (events.fastWinCount >= 1) {
         badges.push(formatBadge('☕', events.fastWinCount, 1));
+    }
+    if (events.cakeCount > 0) {
+        badges.push(formatBadge('🎂', events.cakeCount, 1));
     }
 
     if (stats.currentAlternatingRun && stats.currentAlternatingRun >= 7) {

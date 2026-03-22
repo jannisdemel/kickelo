@@ -385,3 +385,162 @@ function isWeekday(date) {
     const day = date.getDay();
     return day >= 1 && day <= 5;
 }
+
+// --- New stat regression tests ---
+
+function testLongestGoldenPhiStreak() {
+    console.log('\n=== Testing longestGoldenPhiStreak ===\n');
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    const now = Date.now();
+
+    // Alice: 3 consecutive 5:4 wins, then a 4:5 loss, then 1 more 5:4 win
+    // Expected: longestGoldenPhiStreak=3, goldenPhiStreak=1
+    const matches = [
+        { id: 'g1', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - 4 * DAY },
+        { id: 'g2', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - 3 * DAY },
+        { id: 'g3', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - 2 * DAY },
+        { id: 'g4', teamA: ['Alice'], teamB: ['Bob'], winner: 'B', goalsA: 4, goalsB: 5, eloDelta: 10, timestamp: now - DAY },
+        { id: 'g5', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 10, timestamp: now - HOUR },
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const { players: stats } = computeAllPlayerStats(matches);
+    const alice = stats['Alice'];
+
+    if (!alice) throw new Error('Alice missing from stats');
+    if (alice.longestGoldenPhiStreak !== 3) {
+        throw new Error(`Expected longestGoldenPhiStreak=3, got ${alice.longestGoldenPhiStreak}`);
+    }
+    if (alice.goldenPhiStreak !== 1) {
+        throw new Error(`Expected current goldenPhiStreak=1, got ${alice.goldenPhiStreak}`);
+    }
+    console.log('✓ longestGoldenPhiStreak correctly tracks peak before reset');
+}
+
+function testLongestPositiveDayRun() {
+    console.log('\n=== Testing longestPositiveDayRun ===\n');
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    const now = Date.now();
+
+    // Alice ELO per day:
+    //   5 days ago: win  → positive (run=1)
+    //   4 days ago: win  → positive (run=2)
+    //   3 days ago: win  → positive (run=3)  ← longest
+    //   2 days ago: lose → negative (run resets)
+    //   1 day ago:  win  → positive (run=1)
+    //   today:      lose → negative (current run=0)
+    // Expected: longestPositiveDayRun=3, currentPositiveDayRun=0
+    const matches = [
+        { id: 'p1', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - 5 * DAY },
+        { id: 'p2', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - 4 * DAY },
+        { id: 'p3', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - 3 * DAY },
+        { id: 'p4', teamA: ['Alice'], teamB: ['Bob'], winner: 'B', goalsA: 2, goalsB: 5, eloDelta: 20, timestamp: now - 2 * DAY },
+        { id: 'p5', teamA: ['Alice'], teamB: ['Bob'], winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20, timestamp: now - DAY },
+        { id: 'p6', teamA: ['Alice'], teamB: ['Bob'], winner: 'B', goalsA: 2, goalsB: 5, eloDelta: 20, timestamp: now - HOUR },
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const { players: stats } = computeAllPlayerStats(matches);
+    const alice = stats['Alice'];
+
+    if (!alice) throw new Error('Alice missing from stats');
+    if (alice.longestPositiveDayRun !== 3) {
+        throw new Error(`Expected longestPositiveDayRun=3, got ${alice.longestPositiveDayRun}`);
+    }
+    if (alice.currentPositiveDayRun !== 0) {
+        throw new Error(`Expected currentPositiveDayRun=0, got ${alice.currentPositiveDayRun}`);
+    }
+
+    console.log('✓ longestPositiveDayRun correctly finds peak across all days');
+}
+
+testLongestGoldenPhiStreak();
+testLongestPositiveDayRun();
+
+function testHattrickBadge() {
+    console.log('\n=== Testing hattrickCount ===\n');
+    const HOUR = 60 * 60 * 1000;
+    const MIN = 60 * 1000;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const today = todayStart.getTime();
+
+    const matches = [
+        // Today: Alice wins with 3 consecutive red goals within 1 min → hat trick
+        {
+            id: 'ht-yes',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20,
+            timestamp: today + HOUR,
+            goalLog: [
+                { team: 'red',  timestamp: 10000 },
+                { team: 'blue', timestamp: 25000 },
+                { team: 'red',  timestamp: 40000 },
+                { team: 'red',  timestamp: 55000 },
+                { team: 'red',  timestamp: 68000 }, // 3rd red: 68s - 40s = 28s apart from 1st → within 60s
+                { team: 'blue', timestamp: 80000 },
+                { team: 'red',  timestamp: 90000 },
+            ],
+        },
+        // Today: Alice wins with 3 consecutive red goals but spread over >1 min → no hat trick
+        {
+            id: 'ht-slow',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 2, eloDelta: 20,
+            timestamp: today + 2 * HOUR,
+            goalLog: [
+                { team: 'red',  timestamp: 10000 },
+                { team: 'red',  timestamp: 50000 },
+                { team: 'red',  timestamp: 80000 }, // 80s - 10s = 70s > 60s → no hat trick
+                { team: 'blue', timestamp: 100000 },
+                { team: 'red',  timestamp: 110000 },
+                { team: 'blue', timestamp: 120000 },
+                { team: 'red',  timestamp: 130000 },
+            ],
+        },
+        // Today: Alice wins but goals alternate — no hat trick
+        {
+            id: 'ht-no',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 4, eloDelta: 20,
+            timestamp: today + 3 * HOUR,
+            goalLog: buildGoalLog(['red', 'blue', 'red', 'blue', 'red', 'blue', 'red', 'blue', 'red']),
+        },
+        // Today: Bob wins with a hat trick but Alice loses — should not count for Alice
+        {
+            id: 'ht-loser',
+            teamA: ['Bob'], teamB: ['Alice'],
+            winner: 'A', goalsA: 5, goalsB: 1, eloDelta: 20,
+            timestamp: today + 4 * HOUR,
+            goalLog: buildGoalLog(['red', 'red', 'red', 'blue', 'red', 'red']),
+        },
+        // Yesterday: Alice wins with hat trick — should not count (not today)
+        {
+            id: 'ht-yesterday',
+            teamA: ['Alice'], teamB: ['Bob'],
+            winner: 'A', goalsA: 5, goalsB: 0, eloDelta: 20,
+            timestamp: today - HOUR,
+            goalLog: buildGoalLog(['red', 'red', 'red', 'red', 'red']),
+        },
+    ].sort((a, b) => b.timestamp - a.timestamp);
+
+    const { players: stats } = computeAllPlayerStats(matches);
+    const alice = stats['Alice'];
+    const bob = stats['Bob'];
+
+    if (!alice) throw new Error('Alice missing from stats');
+    if (!bob) throw new Error('Bob missing from stats');
+
+    // Alice: only ht-yes qualifies (consecutive + within 1 min)
+    if (alice.statusEvents.hattrickCount !== 1) {
+        throw new Error(`Expected Alice hattrickCount=1, got ${alice.statusEvents.hattrickCount}`);
+    }
+    // Bob wins ht-loser with a hat trick today
+    if (bob.statusEvents.hattrickCount !== 1) {
+        throw new Error(`Expected Bob hattrickCount=1, got ${bob.statusEvents.hattrickCount}`);
+    }
+
+    console.log('✓ hattrickCount increments only for today\'s winners with 3 consecutive goals within 1 minute');
+}
+
+testHattrickBadge();
