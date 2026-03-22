@@ -734,10 +734,21 @@ button:hover {
   box-shadow: none;
   transition: transform 130ms ease, background-color 130ms ease, color 130ms ease, border-color 130ms ease;
   touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
 }
-#activeModal .player-tile:hover {
-  background: var(--hover-color);
-  color: var(--text-color-primary);
+@media (hover: hover) {
+  #activeModal .player-tile:hover {
+    background: var(--hover-color);
+    color: var(--text-color-primary);
+  }
+}
+@media (hover: none) {
+  #activeModal .player-tile:hover {
+    background: #3a3a3a;
+  }
+  #activeModal .player-tile.selected:hover {
+    background: var(--dark-blue);
+  }
 }
 
 #activeModal .player-tile.inactive {
