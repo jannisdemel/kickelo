@@ -705,15 +705,20 @@ button:hover {
 #activeModal .body {
   padding: 0.6rem 0.75rem;
   overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 6px;
   align-items: flex-end;
+  touch-action: pan-y;
 }
 #activeModal .player-tile-row {
   display: flex;
   width: 100%;
+  overflow: hidden;
+  flex-shrink: 0;
   /* justify-content: flex-end; */
 }
 #activeModal .player-tile {
@@ -736,19 +741,35 @@ button:hover {
   touch-action: pan-y;
   -webkit-tap-highlight-color: transparent;
 }
-@media (hover: hover) {
+@media (pointer: fine) {
   #activeModal .player-tile:hover {
     background: var(--hover-color);
     color: var(--text-color-primary);
   }
 }
-@media (hover: none) {
-  #activeModal .player-tile:hover {
-    background: #3a3a3a;
+@media (pointer: coarse) {
+  #activeModal .player-tile:hover,
+  #activeModal .player-tile:active,
+  #activeModal .player-tile:focus {
+    background: #3a3a3a !important;
   }
-  #activeModal .player-tile.selected:hover {
-    background: var(--dark-blue);
+  #activeModal .player-tile.selected:hover,
+  #activeModal .player-tile.selected:active,
+  #activeModal .player-tile.selected:focus {
+    background: var(--dark-blue) !important;
   }
+}
+#activeModal .player-tile:focus:not(:focus-visible) {
+  outline: none;
+  background: #3a3a3a;
+}
+#activeModal .player-tile.selected:focus:not(:focus-visible) {
+  outline: none;
+  background: var(--dark-blue);
+}
+#activeModal .player-tile:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
 }
 
 #activeModal .player-tile.inactive {
@@ -766,6 +787,22 @@ button:hover {
 @media (prefers-reduced-motion: reduce) {
   #activeModal .player-tile {
     transition: none;
+  }
+}
+#activeModal .swipe-hint {
+  display: none;
+  flex-shrink: 0;
+  font-size: 0.95em;
+  color: var(--text-color-secondary);
+  text-align: center;
+  width: 100%;
+  padding: 0px 0 0px;
+  margin: -4px 0 -4px 0;
+  align-self: center;
+}
+@media (pointer: coarse) {
+  #activeModal .swipe-hint {
+    display: block;
   }
 }
 #activeModal footer button {

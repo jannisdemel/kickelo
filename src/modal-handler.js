@@ -56,6 +56,12 @@ function renderPlayerTiles(players, selectedPlayers, recentActivePlayers, onSele
         onSelectionChange();
     };
 
+    // Swipe hint visible only on touch devices (CSS controls visibility)
+    const hint = document.createElement('div');
+    hint.className = 'swipe-hint';
+    hint.textContent = '\u2190 swipe \u2192';
+    modalBody.appendChild(hint);
+
     visiblePlayers.forEach(name => {
         const row = document.createElement('div');
         row.className = 'player-tile-row';
@@ -80,6 +86,7 @@ function renderPlayerTiles(players, selectedPlayers, recentActivePlayers, onSele
         let ptrActive = false;
         let didSwipe = false;
         let lastDx = 0;
+        let tileHalfWidth = 0;
 
         tile.addEventListener('pointerdown', (event) => {
             if (!event.isPrimary) return;
@@ -88,14 +95,24 @@ function renderPlayerTiles(players, selectedPlayers, recentActivePlayers, onSele
             ptrActive = true;
             didSwipe = false;
             lastDx = 0;
+            tileHalfWidth = tile.offsetWidth * 0.5;
+            if (ptrType !== 'mouse') {
+                // Prevent focus & synthetic click/active states on touch
+                event.preventDefault();
+            }
         });
 
         tile.addEventListener('pointermove', (event) => {
             if (!ptrActive || ptrType === 'mouse') return;
 
-            const dx = event.clientX - startX;
-            lastDx = dx;
+            const rawDx = event.clientX - startX;
             const isSelected = selectedPlayers.has(name);
+
+            // Clamp so the tile stays within its row
+            const dx = isSelected
+                ? Math.max(-tileHalfWidth, Math.min(0, rawDx))
+                : Math.max(0, Math.min(tileHalfWidth, rawDx));
+            lastDx = dx;
 
             // Live-drag the tile under the finger
             tile.style.transition = 'background-color 80ms ease';
@@ -143,11 +160,14 @@ function renderPlayerTiles(players, selectedPlayers, recentActivePlayers, onSele
             }
 
             // Animate back to class-driven resting position
+            tile.style.transition = 'none';
             tile.style.backgroundColor = '';
             requestAnimationFrame(() => {
                 tile.style.transition = '';
                 tile.style.transform = '';
             });
+            // Remove focus to prevent sticky highlight on touch devices
+            tile.blur();
         };
 
         tile.addEventListener('pointerup', endPointer);
