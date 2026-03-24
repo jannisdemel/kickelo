@@ -830,7 +830,7 @@ function detectChillComeback(match, goalLog) {
     return true;
 }
 
-const HATTRICK_WINDOW_MS = 60 * 1000;
+const HATTRICK_WINDOW_MS = 40 * 1000;
 
 function detectHattrick(goalLog, teamColor) {
     if (!Array.isArray(goalLog) || goalLog.length < 3) return false;

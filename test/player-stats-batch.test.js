@@ -466,7 +466,7 @@ function testHattrickBadge() {
     const today = todayStart.getTime();
 
     const matches = [
-        // Today: Alice wins with 3 consecutive red goals within 1 min → hat trick
+        // Today: Alice wins with 3 consecutive red goals within 40s → hat trick
         {
             id: 'ht-yes',
             teamA: ['Alice'], teamB: ['Bob'],
@@ -477,12 +477,12 @@ function testHattrickBadge() {
                 { team: 'blue', timestamp: 25000 },
                 { team: 'red',  timestamp: 40000 },
                 { team: 'red',  timestamp: 55000 },
-                { team: 'red',  timestamp: 68000 }, // 3rd red: 68s - 40s = 28s apart from 1st → within 60s
+                { team: 'red',  timestamp: 68000 }, // 3rd red: 68s - 40s = 28s apart from 1st → within 40s
                 { team: 'blue', timestamp: 80000 },
                 { team: 'red',  timestamp: 90000 },
             ],
         },
-        // Today: Alice wins with 3 consecutive red goals but spread over >1 min → no hat trick
+        // Today: Alice wins with 3 consecutive red goals but spread over >40s → no hat trick
         {
             id: 'ht-slow',
             teamA: ['Alice'], teamB: ['Bob'],
@@ -491,7 +491,7 @@ function testHattrickBadge() {
             goalLog: [
                 { team: 'red',  timestamp: 10000 },
                 { team: 'red',  timestamp: 50000 },
-                { team: 'red',  timestamp: 80000 }, // 80s - 10s = 70s > 60s → no hat trick
+                { team: 'red',  timestamp: 80000 }, // 80s - 10s = 70s > 40s → no hat trick
                 { team: 'blue', timestamp: 100000 },
                 { team: 'red',  timestamp: 110000 },
                 { team: 'blue', timestamp: 120000 },
@@ -531,7 +531,7 @@ function testHattrickBadge() {
     if (!alice) throw new Error('Alice missing from stats');
     if (!bob) throw new Error('Bob missing from stats');
 
-    // Alice: only ht-yes qualifies (consecutive + within 1 min)
+    // Alice: only ht-yes qualifies (consecutive + within 40s)
     if (alice.statusEvents.hattrickCount !== 1) {
         throw new Error(`Expected Alice hattrickCount=1, got ${alice.statusEvents.hattrickCount}`);
     }
@@ -540,7 +540,7 @@ function testHattrickBadge() {
         throw new Error(`Expected Bob hattrickCount=1, got ${bob.statusEvents.hattrickCount}`);
     }
 
-    console.log('✓ hattrickCount increments only for today\'s winners with 3 consecutive goals within 1 minute');
+    console.log('✓ hattrickCount increments only for today\'s winners with 3 consecutive goals within 40 seconds');
 }
 
 testHattrickBadge();

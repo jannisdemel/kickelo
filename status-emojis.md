@@ -27,7 +27,7 @@ All badge logic feeds the leaderboard through the stats cache. Event-based award
 | 🐕 | Underdog | Match result | Winning team started ≥100 Elo below losing team (team avg pre-match). Number = sum of `floor(eloDiff / 100)` per qualifying win that day. | `statusEvents.underdogPointSum` | ✅ implemented |
 | 🪃 | Boomerang | Match result | Winning team trailed by ≥2 goals at any point. Number increases by the max deficit erased in that game (e.g., deficits 2 and 3 → +5). | `statusEvents.comebackGoalSum` | ✅ implemented |
 | 📄 | Clean Sheet | Match result | Player wins 5:0 (shutout). Each 5:0 victory adds 1 to the daily count. | `statusEvents.shutoutCount` | ✅ implemented |
-| 🎩 | Hat Trick | Match result | Player's team scores 3 consecutive goals without the opponent scoring in between. Each qualifying win adds 1 for the day. | `statusEvents.hattrickCount` | ✅ implemented |
+| 🎩 | Hat Trick | Match result | Player's team scores 3 consecutive goals within 40 seconds without the opponent scoring in between. Each qualifying win adds 1 for the day. | `statusEvents.hattrickCount` | ✅ implemented |
 | ☕ | Coffee Break | Match result | Winning team finishes the match in under 2 minutes 30 seconds. Each qualifying win adds 1 to the day's tally. | `statusEvents.fastWinCount` | ✅ implemented |
 | 🎢 | Rollercoaster | Match result | Win a match whose goal timeline swaps the leading team at least the configured number of times. Each such win adds 1 for the day. | `statusEvents.rollercoasterCount` | ✅ implemented |
 | 🐧 | Chill Comeback | Match result | Win 5:4 after trailing the entire match until scoring the last two goals (tie at 4:4, then win). Each occurrence adds 1 for the day. | `statusEvents.chillComebackCount` | ✅ implemented |
