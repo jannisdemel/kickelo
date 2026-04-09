@@ -5,7 +5,7 @@ import { serverTimestamp } from "firebase/firestore";
 import { expectedScore, updateRating } from './elo-service.js';
 import { getOrCreatePlayer } from './player-manager.js';
 import { getCachedStats, isCacheReady } from './stats-cache-service.js';
-import { getSelectedSeason } from './season-service.js';
+import { getSelectedSeason, filterMatchesBySeason } from './season-service.js';
 import {
     teamA1Select, teamA2Select, teamB1Select, teamB2Select,
     teamAgoalsInput, teamBgoalsInput, submitMatchBtn,
@@ -17,6 +17,127 @@ import {
 import { MAX_GOALS, STARTING_ELO } from './constants.js';
 import { evaluateLastSuggestion, clearLastSuggestion } from './pairing-service.js';
 import { showToast, showConfirm } from './toast.js';
+import { allMatches } from './match-data-service.js';
+import { computeAllPlayerStats } from './player-stats-batch.js';
+import { getStatusBadges } from './leaderboard-display.js';
+import { createTimelineWithLabel } from './match-timeline.js';
+
+/**
+ * Compute the emoji/badge diff between the current state and after adding a new match.
+ * Returns a DOM element showing gained/lost/changed badges per player, or null if no changes.
+ */
+function buildEmojiDiffElement(playerNames, teamA, teamB, winner, goalsA, goalsB, season, opts = {}) {
+    try {
+        const { isRanked = true, goalLogData = null, matchDurationMs = 0 } = opts;
+
+        // Only show emoji diff for ranked matches
+        if (!isRanked) return null;
+
+        // Build a synthetic match to append to the current match list
+        const syntheticMatch = {
+            teamA, teamB, winner,
+            goalsA, goalsB,
+            timestamp: Date.now(),
+            ranked: true,
+            ...(goalLogData && goalLogData.length > 0
+                ? { goalLog: goalLogData, matchDuration: matchDurationMs }
+                : {}),
+        };
+
+        // Get current season matches (same filtering as stats cache)
+        const seasonMatches = filterMatchesBySeason(allMatches, season)
+            .filter(m => m.ranked !== false);
+
+        // Prepend synthetic match (matches are sorted newest-first)
+        const matchesWithNew = [syntheticMatch, ...seasonMatches];
+        const newStatsResult = computeAllPlayerStats(matchesWithNew, { season });
+
+        // Build badge diff for each player
+        const diffs = [];
+        for (const name of playerNames) {
+            const oldStats = getCachedStats(name);
+            const newStats = newStatsResult.players?.[name];
+            const oldBadges = getStatusBadges(oldStats);
+            const newBadges = getStatusBadges(newStats);
+
+            const oldMap = new Map(oldBadges.map(b => [b.emoji, b]));
+            const newMap = new Map(newBadges.map(b => [b.emoji, b]));
+
+            const changes = [];
+            // Find gained, increased, or decreased badges
+            for (const [emoji, badge] of newMap) {
+                const old = oldMap.get(emoji);
+                if (!old) {
+                    changes.push({ type: 'gained', emoji, value: badge.value, badge });
+                } else if (badge.value !== undefined && old.value !== undefined && badge.value > old.value) {
+                    changes.push({ type: 'gained', emoji, value: badge.value - old.value, badge });
+                } else if (badge.value !== undefined && old.value !== undefined && badge.value < old.value) {
+                    changes.push({ type: 'lost', emoji, value: old.value - badge.value, badge });
+                }
+            }
+            // Find fully lost badges
+            for (const [emoji, badge] of oldMap) {
+                if (!newMap.has(emoji)) {
+                    changes.push({ type: 'lost', emoji, value: badge.value, badge });
+                }
+            }
+
+            if (changes.length > 0) {
+                diffs.push({ name, changes });
+            }
+        }
+
+        if (diffs.length === 0) return null;
+
+        // Build DOM element
+        const container = document.createElement('div');
+        container.className = 'confirm-emoji-diff';
+
+        const heading = document.createElement('div');
+        heading.className = 'confirm-emoji-diff-heading';
+        heading.textContent = 'Badge changes';
+        container.appendChild(heading);
+
+        for (const { name, changes } of diffs) {
+            const row = document.createElement('div');
+            row.className = 'confirm-emoji-diff-row';
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'confirm-emoji-diff-player';
+            nameSpan.textContent = name;
+            row.appendChild(nameSpan);
+
+            const badgesSpan = document.createElement('span');
+            badgesSpan.className = 'confirm-emoji-diff-badges';
+
+            for (const change of changes) {
+                const span = document.createElement('span');
+                span.className = 'confirm-emoji-diff-badge';
+
+                if (change.type === 'gained') {
+                    span.classList.add('badge-gained');
+                    span.textContent = change.value !== undefined && change.value > 1
+                        ? `+${change.emoji}${change.value}`
+                        : `+${change.emoji}`;
+                } else if (change.type === 'lost') {
+                    span.classList.add('badge-lost');
+                    span.textContent = change.value !== undefined && change.value > 1
+                        ? `−${change.emoji}${change.value}`
+                        : `−${change.emoji}`;
+                }
+                badgesSpan.appendChild(span);
+            }
+
+            row.appendChild(badgesSpan);
+            container.appendChild(row);
+        }
+
+        return container;
+    } catch (err) {
+        console.warn('Failed to compute emoji diff for confirmation:', err);
+        return null;
+    }
+}
 
 function buildWaitingPlayers(activePlayers = [], teamA = [], teamB = []) {
     if (!Array.isArray(activePlayers) || activePlayers.length === 0) return [];
@@ -163,8 +284,43 @@ export function setupMatchForm() {
         const winnerGoals = winner === "A" ? parsedGoalsA : parsedGoalsB;
         const loserGoals = winner === "A" ? parsedGoalsB : parsedGoalsA;
         const seasonLabel = season?.name ? ` (${season.name})` : '';
-        const message = `Confirm match submission:\n\nWinners: ${winnerNames}\nLosers: ${loserNames}\nScore: ${winnerGoals}:${loserGoals}\nElo change${seasonLabel}: ${eloChange}\n\nDo you want to submit this match?`;
-        if (!await showConfirm(message, { confirmLabel: 'Submit', cancelLabel: 'Cancel' })) {
+        const message = `Confirm match submission:\n\nWinners: ${winnerNames}\nLosers: ${loserNames}\nScore: ${winnerGoals}:${loserGoals}\nElo change${seasonLabel}: ${eloChange}`;
+
+        // Build rich confirmation content
+        const confirmContent = document.createElement('div');
+        confirmContent.className = 'confirm-match-details';
+
+        // 1. If live mode was used, show SVG goal timeline
+        if (liveMode && goalLog.length > 0) {
+            const timelineEl = createTimelineWithLabel(goalLog);
+            if (timelineEl) {
+                const timelineWrapper = document.createElement('div');
+                timelineWrapper.className = 'confirm-timeline';
+                timelineWrapper.appendChild(timelineEl);
+                confirmContent.appendChild(timelineWrapper);
+            }
+        }
+
+        // 2. Compute emoji diff for players in this match
+        const rankedForDiff = getRankedMatchState() ?? true;
+        const emojiDiffEl = buildEmojiDiffElement(
+            playerNames, teamA, teamB, winner,
+            parsedGoalsA, parsedGoalsB, season, {
+                isRanked: rankedForDiff,
+                goalLogData: liveMode ? goalLog.slice() : null,
+                matchDurationMs: liveMode && matchStartTime ? Date.now() - matchStartTime : 0,
+            }
+        );
+        if (emojiDiffEl) {
+            confirmContent.appendChild(emojiDiffEl);
+        }
+
+        const hasContent = confirmContent.children.length > 0;
+        if (!await showConfirm(message, {
+            confirmLabel: 'Submit',
+            cancelLabel: 'Cancel',
+            contentElement: hasContent ? confirmContent : null,
+        })) {
             return;
         }
 

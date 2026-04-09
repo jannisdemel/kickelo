@@ -274,7 +274,7 @@ function getCurrentElo(stats) {
     return stats.eloTrajectory[stats.eloTrajectory.length - 1].elo;
 }
 
-function getStatusBadges(stats) {
+export function getStatusBadges(stats) {
     if (!stats) return [];
     const badges = [];
     const currentElo = getCurrentElo(stats);

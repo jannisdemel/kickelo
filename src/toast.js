@@ -67,6 +67,7 @@ export function showConfirm(message, options = {}) {
         confirmLabel = 'Confirm',
         cancelLabel = 'Cancel',
         type = 'info',
+        contentElement = null,
     } = options;
 
     return new Promise((resolve) => {
@@ -98,7 +99,14 @@ export function showConfirm(message, options = {}) {
         btnRow.appendChild(btnCancel);
         btnRow.appendChild(btnConfirm);
 
-        dialog.appendChild(msg);
+        // Scrollable body for message + optional content
+        const scrollBody = document.createElement('div');
+        scrollBody.className = 'confirm-scroll-body';
+        scrollBody.appendChild(msg);
+        if (contentElement instanceof HTMLElement) {
+            scrollBody.appendChild(contentElement);
+        }
+        dialog.appendChild(scrollBody);
         dialog.appendChild(btnRow);
         backdrop.appendChild(dialog);
         document.body.appendChild(backdrop);

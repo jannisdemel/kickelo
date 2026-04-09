@@ -1366,11 +1366,21 @@ body.paused > *:not(#pauseOverlay) {
   background: #2a2a2a;
   border-radius: 10px;
   padding: 20px 24px;
-  max-width: 400px;
+  max-width: 440px;
+  max-height: 85vh;
   width: 90%;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   transform: scale(0.95);
   transition: transform 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.confirm-scroll-body {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .confirm-visible .confirm-dialog {
@@ -1391,6 +1401,8 @@ body.paused > *:not(#pauseOverlay) {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
+  flex-shrink: 0;
+  padding-top: 4px;
 }
 
 .confirm-btn {
@@ -1418,4 +1430,70 @@ body.paused > *:not(#pauseOverlay) {
 
 .confirm-btn-ok:hover {
   background: #5a9aaf;
+}
+
+/* =============================
+   Confirm Match Details (rich confirmation content)
+   ============================= */
+.confirm-match-details {
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.confirm-timeline {
+  padding: 6px 0;
+}
+
+/* --- Emoji Diff --- */
+.confirm-emoji-diff {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.confirm-emoji-diff-heading {
+  font-size: 0.82em;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+
+.confirm-emoji-diff-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.confirm-emoji-diff-player {
+  color: #ccc;
+  font-size: 0.9em;
+  min-width: 60px;
+}
+
+.confirm-emoji-diff-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.confirm-emoji-diff-badge {
+  font-size: 0.95em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.confirm-emoji-diff-badge.badge-gained {
+  color: #86e086;
+  background: rgba(134, 224, 134, 0.1);
+}
+
+.confirm-emoji-diff-badge.badge-lost {
+  color: #ff7b7b;
+  background: rgba(255, 123, 123, 0.1);
 }
