@@ -243,7 +243,9 @@ export function computeAllPlayerStats(matches, options = {}) {
             }
             if (playerWasWinner) currentElo += eloDelta;
             else currentElo -= eloDelta;
-            s.eloTrajectory.push({ elo: Math.round(currentElo), timestamp: match.timestamp });
+            const oppAvgElo = isTeamA ? teamBAvgElo : teamAAvgElo;
+            const isGoldenGoalWin = playerWasWinner && teamGoals === MAX_GOALS && oppGoals === MAX_GOALS - 1;
+            s.eloTrajectory.push({ elo: Math.round(currentElo), timestamp: match.timestamp, oppAvgElo: Math.round(oppAvgElo), isGoldenGoalWin });
             if (Math.round(currentElo) > s.highestElo) s.highestElo = Math.round(currentElo);
 
             const perMatchDelta = playerWasWinner ? eloDelta : -eloDelta;

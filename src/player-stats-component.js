@@ -2,8 +2,39 @@ import { getCachedStats, isCacheReady, getSeasonMatchDelta } from './stats-cache
 import { allMatches } from './match-data-service.js';
 import { MAX_GOALS } from './constants.js';
 import Chart from "chart.js/auto";
+import annotationPlugin from 'chartjs-plugin-annotation';
 import { createTimelineWithLabel } from './match-timeline.js';
 import { filterMatchesBySeason, getSelectedSeason } from './season-service.js';
+import {
+    computeSMA,
+    computeEMA,
+    computeRollingStdDev,
+    computeBollingerBands,
+    findDayBoundaries,
+    buildDayBoundaryAnnotations,
+    detectTrends,
+    buildTrendAnnotations,
+    buildTrendLineData,
+    aggregateDailyCandles,
+    candleCloseEMA,
+    detectCandleTrends,
+    candleBollingerBands,
+} from './elo-chart-utils.js';
+
+Chart.register(annotationPlugin);
+
+// --- Persistent ELO chart preferences (survives player switches) ---
+const ELO_CHART_PREFS_KEY = 'kickelo_eloChartPrefs';
+function loadEloChartPrefs() {
+    try {
+        const raw = localStorage.getItem(ELO_CHART_PREFS_KEY);
+        if (raw) return JSON.parse(raw);
+    } catch { /* ignore */ }
+    return { volatility: true, trends: true, range: '20d', mode: 'candle' };
+}
+function saveEloChartPrefs(prefs) {
+    try { localStorage.setItem(ELO_CHART_PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
+}
 
 // Define the HTML template for the component using a template literal
 const template = document.createElement('template');
@@ -99,6 +130,43 @@ template.innerHTML = `
             border-radius: 5px;
             padding: 10px;
             box-sizing: border-box;
+        }
+
+        .elo-chart-controls {
+            display: flex;
+            gap: 14px;
+            margin-bottom: 6px;
+            font-size: 0.82em;
+            color: var(--text-color-secondary);
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .elo-chart-controls label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .elo-chart-controls input[type="checkbox"] {
+            accent-color: #6cabc2;
+        }
+
+        .elo-chart-controls select {
+            background: var(--background-color-primary);
+            color: var(--text-color-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 1em;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .elo-chart-controls .spacer {
+            flex: 1;
         }
 
         .pie-charts-container {
@@ -311,6 +379,20 @@ template.innerHTML = `
                 <!-- ELO Trajectory Section -->
                 <div class="stats-section">
                     <h3>ELO Trajectory</h3>
+                    <div class="elo-chart-controls">
+                        <label><input type="checkbox" id="toggleBollinger" checked /> Volatility</label>
+                        <label><input type="checkbox" id="toggleTrends" checked /> Trends</label>
+                        <span class="spacer"></span>
+                        <select id="eloMode">
+                            <option value="line">Line</option>
+                            <option value="candle">Daily</option>
+                        </select>
+                        <select id="eloRange">
+                            <option value="season">Season</option>
+                            <option value="20d">Last 20 active days</option>
+                            <option value="5d">Last 5 active days</option>
+                        </select>
+                    </div>
                     <div class="chart-container">
                         <canvas id="eloChart"></canvas>
                     </div>
@@ -469,46 +551,505 @@ class PlayerStatsComponent extends HTMLElement {
 
     renderEloGraph(trajectoryData) {
         const canvas = this.shadowRoot.getElementById('eloChart');
-        if (!canvas) return;
-        const chart = new Chart(
-        canvas.getContext('2d'),
-        {
-                type: 'line',
-                data: {
-                    labels: trajectoryData.map(p => new Date(p.timestamp).toLocaleDateString()),
-                    datasets: [
-                        {
-                            label: 'ELO',
-                            data: trajectoryData.map(p => p.elo),
-                            borderColor: '#6cabc2',
-                            backgroundColor: '#6cabc2',
-                            pointRadius: 0,
-                            borderWidth: 3,
-                            tension: 0,
-                            pointHitRadius: 20,
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            ticks: { color: '#ccc' },
-                            grid: { color: 'rgba(170, 170, 170, 0.2)' }
-                        },
-                        x: {
-                            ticks: { color: '#ccc' },
-                            grid: { color: 'rgba(170, 170, 170, 0.2)' }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false }
-                    }
-                }
+        if (!canvas || !trajectoryData || trajectoryData.length === 0) return;
+
+        // Load persisted preferences
+        const prefs = loadEloChartPrefs();
+
+        // Apply saved prefs to controls
+        const bollingerToggle = this.shadowRoot.getElementById('toggleBollinger');
+        const trendsToggle = this.shadowRoot.getElementById('toggleTrends');
+        const rangeSelect = this.shadowRoot.getElementById('eloRange');
+        const modeSelect = this.shadowRoot.getElementById('eloMode');
+        if (bollingerToggle) bollingerToggle.checked = prefs.volatility;
+        if (trendsToggle) trendsToggle.checked = prefs.trends;
+        if (rangeSelect) rangeSelect.value = prefs.range;
+        if (modeSelect) modeSelect.value = prefs.mode || 'line';
+
+        // Store full trajectory + pre-compute analytics ONCE on the whole data
+        this._eloFullTrajectory = trajectoryData;
+        this._precomputeEloAnalytics(trajectoryData);
+
+        // Render with current range/mode
+        this._renderCurrentEloMode(canvas, prefs);
+    }
+
+    /** Pre-compute all analytics on the full trajectory. Called once per player load. */
+    _precomputeEloAnalytics(trajectoryData) {
+        const eloValues = trajectoryData.map(p => p.elo);
+        const timestamps = trajectoryData.map(p => p.timestamp);
+        const n = eloValues.length;
+
+        // EMA
+        const EMA_SPAN = Math.max(6, Math.min(14, Math.ceil(n / 4)));
+        const ema = computeEMA(eloValues, EMA_SPAN);
+
+        // Bollinger bands
+        const BAND_WINDOW = Math.max(6, Math.min(14, Math.ceil(n / 4)));
+        const stddev = computeRollingStdDev(eloValues, BAND_WINDOW);
+        const { upper: bollingerUpper, lower: bollingerLower } = computeBollingerBands(ema, stddev, 1.5);
+
+        // Day boundaries
+        const dayBoundaries = findDayBoundaries(timestamps);
+        const dayAnnotations = buildDayBoundaryAnnotations(dayBoundaries);
+
+        // Trends (EMA crossover)
+        const fastSpan = Math.max(4, Math.min(10, Math.ceil(n / 8)));
+        const slowSpan = Math.max(8, Math.min(20, Math.ceil(n / 4)));
+        const trendMinLen = Math.max(4, Math.ceil(slowSpan / 2));
+        const trends = detectTrends(eloValues, fastSpan, slowSpan, trendMinLen);
+        const { data: trendLineData, directions: trendDirections } = buildTrendLineData(eloValues, trends);
+        const trendAnnotations = buildTrendAnnotations(trends);
+
+        // Golden-goal indices
+        const goldenGoalIndices = [];
+        trajectoryData.forEach((p, i) => { if (p.isGoldenGoalWin) goldenGoalIndices.push(i); });
+
+        // Active-day mapping: list of { startIdx, endIdx } for each active day
+        const activeDays = [];
+        let curDay = null;
+        let curStart = 0;
+        for (let i = 0; i < timestamps.length; i++) {
+            const dayStr = new Date(timestamps[i]).toDateString();
+            if (dayStr !== curDay) {
+                if (curDay !== null) activeDays.push({ day: curDay, startIdx: curStart, endIdx: i - 1 });
+                curDay = dayStr;
+                curStart = i;
             }
-        );
+        }
+        if (curDay !== null) activeDays.push({ day: curDay, startIdx: curStart, endIdx: timestamps.length - 1 });
+
+        // Candle data (pre-computed for daily mode)
+        const candles = aggregateDailyCandles(trajectoryData);
+        const candleN = candles.length;
+        const candleEmaSpan = Math.max(3, Math.min(10, Math.ceil(candleN / 4)));
+        const candleEma = candleCloseEMA(candles, candleEmaSpan);
+        const candleFastSpan = Math.max(3, Math.min(6, Math.ceil(candleN / 6)));
+        const candleSlowSpan = Math.max(5, Math.min(12, Math.ceil(candleN / 3)));
+        const candleTrendMinLen = Math.max(3, Math.ceil(candleSlowSpan / 2));
+        const candleTrends = detectCandleTrends(candles, candleFastSpan, candleSlowSpan, candleTrendMinLen);
+        const { data: candleTrendLineData, directions: candleTrendDirections } = buildTrendLineData(candles.map(c => c.close), candleTrends);
+        const candleTrendAnnotations = buildTrendAnnotations(candleTrends);
+        const { upper: candleBollUpper, lower: candleBollLower } = candleBollingerBands(candles, candleEmaSpan, 1.5);
+
+        this._eloAnalytics = {
+            eloValues, timestamps, ema,
+            bollingerUpper, bollingerLower,
+            dayBoundaries, dayAnnotations,
+            trendAnnotations, trendLineData, trendDirections, trends,
+            goldenGoalIndices, activeDays,
+            candles, candleEma, candleTrends,
+            candleTrendAnnotations, candleTrendLineData, candleTrendDirections,
+            candleBollUpper, candleBollLower,
+        };
+    }
+
+    /** Compute the visible index range for the selected range option. */
+    _getVisibleRange(range) {
+        const { activeDays, eloValues } = this._eloAnalytics;
+        const total = eloValues.length;
+        if (range === 'season' || !range || activeDays.length === 0) return { min: 0, max: total - 1 };
+
+        const numDays = range === '5d' ? 5 : 20;
+        const slicedDays = activeDays.slice(-numDays);
+        // Include one point before the first visible day for context
+        const startIdx = Math.max(0, slicedDays[0].startIdx - 1);
+        return { min: startIdx, max: total - 1 };
+    }
+
+    /** Compute the visible candle range for daily mode. */
+    _getVisibleCandleRange(range) {
+        const { candles } = this._eloAnalytics;
+        const total = candles.length;
+        if (range === 'season' || !range || total === 0) return { min: 0, max: total - 1 };
+        const numDays = range === '5d' ? 5 : 20;
+        return { min: Math.max(0, total - numDays), max: total - 1 };
+    }
+
+    /** Render the correct chart mode (line or candle). */
+    _renderCurrentEloMode(canvas, prefs) {
+        // Destroy previous chart
+        if (this._eloChartRef) {
+            this._eloChartRef.destroy();
+            this.chartInstances = this.chartInstances.filter(c => c !== this._eloChartRef);
+            this._eloChartRef = null;
+        }
+
+        if (prefs.mode === 'candle') {
+            this._buildCandleChart(canvas, prefs);
+        } else {
+            this._buildLineChart(canvas, prefs);
+        }
+
+        this._wireEloChartControls(prefs);
+    }
+
+    /** Build the line-mode ELO chart. Analytics are pre-computed; only slicing the view. */
+    _buildLineChart(canvas, prefs) {
+        const a = this._eloAnalytics;
+        const { eloValues, timestamps, ema, bollingerUpper, bollingerLower,
+                dayAnnotations, trendAnnotations, trendLineData, trendDirections, goldenGoalIndices } = a;
+        const labels = timestamps.map(t => new Date(t).toLocaleDateString());
+
+        const showBoll = prefs.volatility;
+        const showTrends = prefs.trends;
+        const { min: xMin, max: xMax } = this._getVisibleRange(prefs.range);
+
+        // Golden-goal markers: point array with NaN everywhere except golden-goal indices
+        const goldenData = new Array(eloValues.length).fill(null);
+        for (const i of goldenGoalIndices) goldenData[i] = eloValues[i];
+
+        const datasets = [
+            // 0: Bollinger upper
+            {
+                label: 'Bollinger Upper',
+                data: showBoll ? bollingerUpper : bollingerUpper.map(() => null),
+                borderColor: 'transparent', backgroundColor: 'transparent',
+                pointRadius: 0, pointHitRadius: 0, borderWidth: 0,
+                fill: false, order: 6, spanGaps: false,
+            },
+            // 1: Bollinger lower (fill to upper)
+            {
+                label: 'Bollinger Lower',
+                data: showBoll ? bollingerLower : bollingerLower.map(() => null),
+                borderColor: 'transparent', backgroundColor: 'rgba(108, 171, 194, 0.10)',
+                pointRadius: 0, pointHitRadius: 0, borderWidth: 0,
+                fill: '-1', order: 5, spanGaps: false,
+            },
+            // 2: Raw ELO
+            {
+                label: 'ELO', data: eloValues,
+                borderColor: 'rgba(108, 171, 194, 0.45)', backgroundColor: 'rgba(108, 171, 194, 0.45)',
+                pointRadius: 0, borderWidth: 1.5, tension: 0, pointHitRadius: 20, order: 4,
+            },
+            // 3: EMA
+            {
+                label: 'Moving Avg', data: ema,
+                borderColor: '#6cabc2', backgroundColor: '#6cabc2',
+                pointRadius: 0, borderWidth: 2.8, tension: 0.35,
+                pointHitRadius: 0, spanGaps: true, order: 3,
+            },
+            // 4: Trend lines
+            {
+                label: 'Trend',
+                data: showTrends ? trendLineData : trendLineData.map(() => null),
+                borderColor: 'rgba(255,255,255,0.3)', backgroundColor: 'transparent',
+                pointRadius: 0, borderWidth: 2, borderDash: [6, 3],
+                tension: 0, pointHitRadius: 0, spanGaps: false,
+                segment: {
+                    borderColor: (ctx) => {
+                        if (!ctx.p0 || !ctx.p1) return 'rgba(255,255,255,0.3)';
+                        const dir = trendDirections[ctx.p1DataIndex];
+                        return dir === 'up'
+                            ? 'rgba(76, 175, 80, 0.7)' : 'rgba(244, 67, 54, 0.7)';
+                    },
+                }, order: 2,
+            },
+            // 5: Golden-goal markers
+            {
+                label: 'Golden Goal',
+                data: goldenData,
+                borderColor: '#ffd900c7', backgroundColor: '#ffd900c7',
+                pointRadius: goldenData.map(v => v !== null ? 1.5 : 0),
+                pointStyle: 'circle',
+                borderWidth: 1.5, showLine: false,
+                pointHitRadius: 8, order: 0,
+            },
+        ];
+
+        // Annotations: day lines + optional trends
+        const annotations = { ...dayAnnotations };
+        if (showTrends) Object.assign(annotations, trendAnnotations);
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    y: {
+                        ticks: { color: '#ccc', maxTicksLimit: 6 },
+                        grid: { color: 'rgba(170, 170, 170, 0.12)' },
+                    },
+                    x: {
+                        min: xMin, max: xMax,
+                        ticks: { color: '#ccc', maxTicksLimit: 10, maxRotation: 0 },
+                        grid: { display: false },
+                    },
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => {
+                                if (!items.length) return '';
+                                const idx = items[0].dataIndex;
+                                return new Date(timestamps[idx]).toLocaleString();
+                            },
+                            label: (item) => {
+                                const lbl = item.dataset.label;
+                                if (lbl === 'Bollinger Upper' || lbl === 'Bollinger Lower') return null;
+                                if (lbl === 'Trend' && item.parsed.y === null) return null;
+                                const val = item.parsed.y;
+                                if (val === null || val === undefined) return null;
+                                if (lbl === 'Golden Goal') return `${lbl} Win: ${Math.round(val)}`;
+                                return `${lbl}: ${Math.round(val)}`;
+                            },
+                        },
+                        filter: (item) => item.parsed.y !== null && item.parsed.y !== undefined,
+                    },
+                    annotation: { annotations },
+                },
+            },
+        });
+
         this.chartInstances.push(chart);
+        this._eloChartRef = chart;
+    }
+
+    /** Build candlestick-style daily chart. */
+    _buildCandleChart(canvas, prefs) {
+        const a = this._eloAnalytics;
+        const { candles, candleEma, candleTrends, candleTrendAnnotations,
+                candleTrendLineData, candleTrendDirections, candleBollUpper, candleBollLower } = a;
+
+        if (candles.length === 0) return;
+
+        const showBoll = prefs.volatility;
+        const showTrends = prefs.trends;
+        const { min: xMin, max: xMax } = this._getVisibleCandleRange(prefs.range);
+
+        // Compute y-axis range from visible candles (+ Bollinger if active)
+        const visibleCandles = candles.slice(xMin, xMax + 1);
+        const allY = visibleCandles.flatMap(c => [c.low, c.high]);
+        if (showBoll) {
+            for (let i = xMin; i <= xMax; i++) {
+                if (candleBollUpper[i] != null) allY.push(candleBollUpper[i]);
+                if (candleBollLower[i] != null) allY.push(candleBollLower[i]);
+            }
+        }
+        const yDataMin = Math.min(...allY);
+        const yDataMax = Math.max(...allY);
+        const yPad = Math.max(2, (yDataMax - yDataMin) * 0.08);
+
+        const labels = candles.map(c => {
+            const d = c.date;
+            return `${d.getDate()}/${d.getMonth() + 1}`;
+        });
+
+        // Candle body: floating bar from open to close
+        const bodyData = candles.map(c => [Math.min(c.open, c.close), Math.max(c.open, c.close)]);
+        const bodyColors = candles.map(c => c.gain ? 'rgba(76, 175, 80, 0.75)' : 'rgba(244, 67, 54, 0.75)');
+        const bodyBorders = candles.map(c => c.gain ? 'rgba(76, 175, 80, 1)' : 'rgba(244, 67, 54, 1)');
+
+        // Wicks: custom annotations for high/low lines at each candle
+        const wickAnnotations = {};
+        candles.forEach((c, i) => {
+            const bodyTop = Math.max(c.open, c.close);
+            const bodyBottom = Math.min(c.open, c.close);
+            if (c.high > bodyTop) {
+                wickAnnotations[`wickHi${i}`] = {
+                    type: 'line', xMin: i, xMax: i,
+                    yMin: bodyTop, yMax: c.high,
+                    borderColor: c.gain ? 'rgba(76, 175, 80, 0.6)' : 'rgba(244, 67, 54, 0.6)',
+                    borderWidth: 1.5,
+                };
+            }
+            if (c.low < bodyBottom) {
+                wickAnnotations[`wickLo${i}`] = {
+                    type: 'line', xMin: i, xMax: i,
+                    yMin: c.low, yMax: bodyBottom,
+                    borderColor: c.gain ? 'rgba(76, 175, 80, 0.6)' : 'rgba(244, 67, 54, 0.6)',
+                    borderWidth: 1.5,
+                };
+            }
+        });
+
+        const datasets = [
+            // 0: Bollinger upper
+            {
+                label: 'Bollinger Upper',
+                data: showBoll ? candleBollUpper : candleBollUpper.map(() => null),
+                borderColor: 'transparent', backgroundColor: 'transparent',
+                pointRadius: 0, pointHitRadius: 0, borderWidth: 0,
+                fill: false, order: 6, type: 'line',
+            },
+            // 1: Bollinger lower (fill)
+            {
+                label: 'Bollinger Lower',
+                data: showBoll ? candleBollLower : candleBollLower.map(() => null),
+                borderColor: 'transparent', backgroundColor: 'rgba(108, 171, 194, 0.10)',
+                pointRadius: 0, pointHitRadius: 0, borderWidth: 0,
+                fill: '-1', order: 5, type: 'line',
+            },
+            // 2: Candle bodies (floating bars)
+            {
+                label: 'Daily ELO',
+                data: bodyData,
+                backgroundColor: bodyColors,
+                borderColor: bodyBorders,
+                borderWidth: 1,
+                borderSkipped: false,
+                barPercentage: 0.85,
+                categoryPercentage: 0.95,
+                order: 4,
+                type: 'bar',
+            },
+            // 3: EMA line
+            {
+                label: 'Moving Avg',
+                data: candleEma,
+                borderColor: '#6cabc2', backgroundColor: '#6cabc2',
+                pointRadius: 0, borderWidth: 2.5, tension: 0.3,
+                pointHitRadius: 0, spanGaps: true, order: 3, type: 'line',
+            },
+            // 4: Trend lines
+            {
+                label: 'Trend',
+                data: showTrends ? candleTrendLineData : candleTrendLineData.map(() => null),
+                borderColor: 'rgba(255,255,255,0.3)', backgroundColor: 'transparent',
+                pointRadius: 0, borderWidth: 2, borderDash: [6, 3],
+                tension: 0, pointHitRadius: 0, spanGaps: false, order: 2, type: 'line',
+                segment: {
+                    borderColor: (ctx) => {
+                        if (!ctx.p0 || !ctx.p1) return 'rgba(255,255,255,0.3)';
+                        const dir = candleTrendDirections[ctx.p1DataIndex];
+                        return dir === 'up'
+                            ? 'rgba(76, 175, 80, 0.7)' : 'rgba(244, 67, 54, 0.7)';
+                    },
+                },
+            },
+        ];
+
+        // Merge wick + trend annotations
+        const annotations = { ...wickAnnotations };
+        if (showTrends) Object.assign(annotations, candleTrendAnnotations);
+
+        const chart = new Chart(canvas.getContext('2d'), {
+            data: { labels, datasets },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                scales: {
+                    y: {
+                        beginAtZero: false,
+                        min: yDataMin - yPad,
+                        max: yDataMax + yPad,
+                        ticks: { color: '#ccc', maxTicksLimit: 6 },
+                        grid: { color: 'rgba(170, 170, 170, 0.12)' },
+                    },
+                    x: {
+                        min: xMin, max: xMax,
+                        ticks: { color: '#ccc', maxTicksLimit: 14, maxRotation: 0 },
+                        grid: { display: false },
+                    },
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => {
+                                if (!items.length) return '';
+                                const idx = items[0].dataIndex;
+                                return candles[idx]?.dateStr ?? '';
+                            },
+                            label: (item) => {
+                                const lbl = item.dataset.label;
+                                if (lbl === 'Bollinger Upper' || lbl === 'Bollinger Lower') return null;
+                                if (lbl === 'Trend' && item.parsed.y === null) return null;
+                                if (lbl === 'Daily ELO') {
+                                    const c = candles[item.dataIndex];
+                                    if (!c) return null;
+                                    const delta = c.close - c.open;
+                                    const sign = delta >= 0 ? '+' : '';
+                                    return `Open: ${c.open}  Close: ${c.close}  (${sign}${delta})`;
+                                }
+                                const val = item.parsed.y;
+                                if (val === null || val === undefined) return null;
+                                return `${lbl}: ${Math.round(val)}`;
+                            },
+                        },
+                        filter: (item) => {
+                            const val = item.parsed.y;
+                            return val !== null && val !== undefined;
+                        },
+                    },
+                    annotation: { annotations },
+                },
+            },
+        });
+
+        this.chartInstances.push(chart);
+        this._eloChartRef = chart;
+    }
+
+    /** Attach event listeners to ELO chart controls. Idempotent via AbortController. */
+    _wireEloChartControls(prefs) {
+        if (this._eloControlsAbort) this._eloControlsAbort.abort();
+        const ac = new AbortController();
+        this._eloControlsAbort = ac;
+        const sig = { signal: ac.signal };
+
+        const bollingerToggle = this.shadowRoot.getElementById('toggleBollinger');
+        const trendsToggle = this.shadowRoot.getElementById('toggleTrends');
+        const rangeSelect = this.shadowRoot.getElementById('eloRange');
+        const modeSelect = this.shadowRoot.getElementById('eloMode');
+        const chart = this._eloChartRef;
+        const a = this._eloAnalytics;
+
+        const persist = () => {
+            const p = {
+                volatility: bollingerToggle?.checked ?? true,
+                trends: trendsToggle?.checked ?? true,
+                range: rangeSelect?.value ?? 'season',
+                mode: modeSelect?.value ?? 'line',
+            };
+            saveEloChartPrefs(p);
+            return p;
+        };
+
+        const rebuildChart = () => {
+            const p = persist();
+            const canvas = this.shadowRoot.getElementById('eloChart');
+            if (canvas) this._renderCurrentEloMode(canvas, p);
+        };
+
+        // Volatility toggle: quick update without rebuild for line mode
+        if (bollingerToggle) {
+            bollingerToggle.addEventListener('change', () => {
+                if (!chart) return rebuildChart();
+                const show = bollingerToggle.checked;
+                const isCandle = (modeSelect?.value ?? 'line') === 'candle';
+                const upper = isCandle ? a.candleBollUpper : a.bollingerUpper;
+                const lower = isCandle ? a.candleBollLower : a.bollingerLower;
+                chart.data.datasets[0].data = show ? upper : upper.map(() => null);
+                chart.data.datasets[1].data = show ? lower : lower.map(() => null);
+                chart.update('none');
+                persist();
+            }, sig);
+        }
+
+        // Trends toggle: quick update
+        if (trendsToggle) {
+            trendsToggle.addEventListener('change', () => {
+                if (!chart) return rebuildChart();
+                const show = trendsToggle.checked;
+                const isCandle = (modeSelect?.value ?? 'line') === 'candle';
+                const tld = isCandle ? a.candleTrendLineData : a.trendLineData;
+                const ta = isCandle ? a.candleTrendAnnotations : a.trendAnnotations;
+                chart.data.datasets[4].data = show ? tld : tld.map(() => null);
+                const annots = chart.options.plugins.annotation.annotations;
+                if (!show) { for (const key of Object.keys(ta)) delete annots[key]; }
+                else { Object.assign(annots, ta); }
+                chart.update('none');
+                persist();
+            }, sig);
+        }
+
+        // Range and mode changes require a full rebuild to adjust x-axis
+        if (rangeSelect) rangeSelect.addEventListener('change', rebuildChart, sig);
+        if (modeSelect) modeSelect.addEventListener('change', rebuildChart, sig);
     }
 
     renderWinLossTable(ratios) {
@@ -829,6 +1370,7 @@ class PlayerStatsComponent extends HTMLElement {
     }
     close() {
         this.hideTooltip();
+        if (this._eloControlsAbort) this._eloControlsAbort.abort();
         this.parentNode.classList.remove('visible');
         this.parentNode.innerHTML = '';
         this.chartInstances.forEach(chart => chart.destroy());
