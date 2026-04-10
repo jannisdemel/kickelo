@@ -1641,7 +1641,7 @@ body.paused > *:not(#pauseOverlay) {
 
 /* Edit button on recent matches */
 .match-edit-btn {
-  background: none;
+  background: rgba(255, 255, 255, 0.06);
   border: none;
   cursor: pointer;
   font-size: 0.85em;
@@ -1652,11 +1652,11 @@ body.paused > *:not(#pauseOverlay) {
   text-align: center;
   opacity: 1;
   flex-shrink: 0;
+  border-radius: 4px;
 }
 
 .match-edit-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 /* Edited match indicator */

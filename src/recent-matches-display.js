@@ -39,9 +39,11 @@ function createMatchListItem(match) {
         ? '<span class="match-edited-tag">(edited)</span>'
         : '';
 
-    li.innerHTML = `<span class="match-result-text" style="flex: 1;">${winner} ${winnerGoals}:${loserGoals} ${loser} <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>${deletedTag}${editedTag}</span>`;
-    li.style.display = 'flex';
-    li.style.alignItems = 'center';
+    // Top row: result text + edit button
+    const topRow = document.createElement('div');
+    topRow.style.display = 'flex';
+    topRow.style.alignItems = 'center';
+    topRow.innerHTML = `<span class="match-result-text" style="flex: 1;">${winner} ${winnerGoals}:${loserGoals} ${loser} <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>${deletedTag}${editedTag}</span>`;
     if (match.deleted) {
         li.classList.add('match-deleted');
     }
@@ -58,8 +60,9 @@ function createMatchListItem(match) {
             e.stopPropagation();
             openEditModal(match);
         });
-        li.appendChild(editBtn);
+        topRow.appendChild(editBtn);
     }
+    li.appendChild(topRow);
 
     // If live match, add timeline
     if (Array.isArray(match.goalLog) && match.goalLog.length > 0) {
