@@ -30,7 +30,7 @@ function loadEloChartPrefs() {
         const raw = localStorage.getItem(ELO_CHART_PREFS_KEY);
         if (raw) return JSON.parse(raw);
     } catch { /* ignore */ }
-    return { volatility: true, trends: true, range: '20d', mode: 'candle' };
+    return { volatility: false, trends: false, range: '20d', mode: 'candle' };
 }
 function saveEloChartPrefs(prefs) {
     try { localStorage.setItem(ELO_CHART_PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
