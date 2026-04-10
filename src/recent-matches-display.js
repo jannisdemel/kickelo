@@ -4,6 +4,8 @@ import { recentMatchesList, recentMatchesHeading } from './dom-elements.js';
 import { createTimelineWithLabel } from './match-timeline.js';
 import { filterMatchesBySeason, getSelectedSeason } from './season-service.js';
 import { getSeasonMatchDelta } from './stats-cache-service.js';
+import { canEditMatch } from './match-edit-service.js';
+import { openEditModal } from './match-edit-modal.js';
 
 
 function createMatchListItem(match) {
@@ -26,7 +28,29 @@ function createMatchListItem(match) {
     const deltaLabel = match.ranked === false
         ? '(unranked)'
         : `(Elo Δ: ${deltaDisplay})`;
-    li.innerHTML = `${winner} ${winnerGoals}:${loserGoals} ${loser} <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>`;
+
+    // Edited indicator
+    const editedTag = Array.isArray(match.editHistory) && match.editHistory.length > 0
+        ? '<span class="match-edited-tag">(edited)</span>'
+        : '';
+
+    li.innerHTML = `${winner} ${winnerGoals}:${loserGoals} ${loser} <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>${editedTag}`;
+
+    // Edit button
+    const { editable } = canEditMatch(match);
+    if (editable) {
+        const editBtn = document.createElement('button');
+        editBtn.className = 'match-edit-btn';
+        editBtn.title = 'Edit this match';
+        editBtn.textContent = '✏️';
+        editBtn.type = 'button';
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openEditModal(match);
+        });
+        li.appendChild(editBtn);
+    }
+
     // If live match, add timeline
     if (Array.isArray(match.goalLog) && match.goalLog.length > 0) {
         const timelineWithLabel = createTimelineWithLabel(match.goalLog);

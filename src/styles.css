@@ -1497,3 +1497,154 @@ body.paused > *:not(#pauseOverlay) {
   color: #ff7b7b;
   background: rgba(255, 123, 123, 0.1);
 }
+
+/* =============================
+   Match Edit Modal
+   ============================= */
+.edit-modal-dialog {
+  max-width: 400px;
+}
+
+.edit-modal-title {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--text-color-primary);
+  margin-bottom: 12px;
+}
+
+.edit-modal-original {
+  font-size: 0.85em;
+  color: #999;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.edit-modal-original-label {
+  color: #777;
+  font-size: 0.9em;
+}
+
+.edit-modal-team {
+  margin-bottom: 10px;
+}
+
+.edit-modal-team-label {
+  font-size: 0.82em;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.edit-modal-team-red .edit-modal-team-label { color: #ce848c; }
+.edit-modal-team-blue .edit-modal-team-label { color: #6cabc2; }
+
+.edit-modal-select {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--gray-dark);
+  color: var(--text-color-primary);
+  font-size: 0.95em;
+  appearance: auto;
+}
+
+.edit-modal-select.edit-red { border-color: rgba(206, 132, 140, 0.4); }
+.edit-modal-select.edit-blue { border-color: rgba(108, 171, 194, 0.4); }
+
+.edit-modal-score {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.edit-modal-goals {
+  width: 70px;
+  text-align: center;
+  font-size: 1.3em;
+  font-weight: 600;
+}
+
+.edit-modal-score-sep {
+  font-size: 1.4em;
+  font-weight: 700;
+  color: var(--text-color-secondary);
+}
+
+.edit-modal-option-row {
+  margin: 8px 0;
+  font-size: 0.9em;
+  color: var(--text-color-secondary);
+}
+
+.edit-modal-option-row label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.edit-modal-quick-actions {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+.edit-modal-quick-actions .confirm-btn {
+  font-size: 0.82em;
+  padding: 6px 12px;
+}
+
+.edit-modal-changes {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 10px 0;
+  min-height: 28px;
+}
+
+.edit-modal-no-changes {
+  color: #666;
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+.edit-modal-change-item {
+  color: #e0c56a;
+  font-size: 0.88em;
+  padding: 2px 0;
+}
+
+/* Edit button on recent matches */
+.match-edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85em;
+  padding: 2px 6px;
+  margin-left: 6px;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+  vertical-align: middle;
+}
+
+.match-edit-btn:hover {
+  opacity: 0.9;
+}
+
+/* Edited match indicator */
+.match-edited-tag {
+  font-size: 0.75em;
+  color: #888;
+  margin-left: 4px;
+  font-style: italic;
+}

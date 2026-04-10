@@ -32,7 +32,7 @@
   - Maybe add option to join only with name and no rating and stats shown. When joining later, only stats from that point onwards are displayed.
 
 
-- [ ] Add option to edit recent, already logged matches (e.g., to fix mistakes in team assignments and swapping the winner). Could be implemented by
+- [x] Add option to edit recent, already logged matches (e.g., to fix mistakes in team assignments and swapping the winner). Could be implemented by
 
 - [ ] improve visuals and quality of life of suggest player select
   - [ ] maybe also visualize suggest logic
