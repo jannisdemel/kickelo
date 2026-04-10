@@ -1527,6 +1527,18 @@ body.paused > *:not(#pauseOverlay) {
   font-size: 0.9em;
 }
 
+.edit-modal-teams-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.edit-modal-teams-row .edit-modal-team {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
 .edit-modal-team {
   margin-bottom: 10px;
 }
@@ -1596,7 +1608,10 @@ body.paused > *:not(#pauseOverlay) {
   display: flex;
   gap: 8px;
   margin: 12px 0;
-  flex-wrap: wrap;
+}
+
+.edit-modal-quick-actions .confirm-btn {
+  flex: 1;
 }
 
 .edit-modal-quick-actions .confirm-btn {
@@ -1632,13 +1647,13 @@ body.paused > *:not(#pauseOverlay) {
   font-size: 0.85em;
   padding: 2px 6px;
   margin-left: 6px;
-  opacity: 0.4;
+  opacity: 0.7;
   transition: opacity 0.15s;
   vertical-align: middle;
 }
 
 .match-edit-btn:hover {
-  opacity: 0.9;
+  opacity: 1;
 }
 
 /* Edited match indicator */
@@ -1647,4 +1662,22 @@ body.paused > *:not(#pauseOverlay) {
   color: #888;
   margin-left: 4px;
   font-style: italic;
+}
+
+/* Deleted match indicator */
+.match-deleted-tag {
+  font-size: 0.75em;
+  color: #e07a7a;
+  margin-left: 4px;
+  font-style: italic;
+}
+
+.match-deleted .match-result-text {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+/* Goal log warning in change summary */
+.edit-modal-change-item.goal-log-warning {
+  color: #e0a06a;
 }

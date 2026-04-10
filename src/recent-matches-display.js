@@ -25,16 +25,24 @@ function createMatchListItem(match) {
 
     const seasonDelta = getSeasonMatchDelta(match);
     const deltaDisplay = seasonDelta ?? 0;
-    const deltaLabel = match.ranked === false
-        ? '(unranked)'
-        : `(Elo Δ: ${deltaDisplay})`;
+    const deltaLabel = match.deleted
+        ? ''
+        : match.ranked === false
+            ? '(unranked)'
+            : `(Elo Δ: ${deltaDisplay})`;
 
-    // Edited indicator
-    const editedTag = Array.isArray(match.editHistory) && match.editHistory.length > 0
+    // Edited / deleted indicators
+    const deletedTag = match.deleted
+        ? '<span class="match-deleted-tag">(deleted)</span>'
+        : '';
+    const editedTag = !match.deleted && Array.isArray(match.editHistory) && match.editHistory.length > 0
         ? '<span class="match-edited-tag">(edited)</span>'
         : '';
 
-    li.innerHTML = `${winner} ${winnerGoals}:${loserGoals} ${loser} <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>${editedTag}`;
+    li.innerHTML = `<span class="match-result-text">${winner} ${winnerGoals}:${loserGoals} ${loser}</span> <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>${deletedTag}${editedTag}`;
+    if (match.deleted) {
+        li.classList.add('match-deleted');
+    }
 
     // Edit button
     const { editable } = canEditMatch(match);

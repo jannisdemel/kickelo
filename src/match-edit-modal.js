@@ -2,7 +2,7 @@
 // Modal UI for editing a submitted match.
 
 import { allPlayers } from './player-data-service.js';
-import { canEditMatch, saveMatchEdit } from './match-edit-service.js';
+import { canEditMatch, saveMatchEdit, softDeleteMatch } from './match-edit-service.js';
 import { MAX_GOALS } from './constants.js';
 import { showConfirm } from './toast.js';
 
@@ -81,27 +81,31 @@ function buildChangeSummary(original, getEdited) {
             changes.push(`Team Blue: ${original.teamB.join(' & ')} → ${edited.teamB.join(' & ')}`);
         }
         if (edited.goalsA !== original.goalsA || edited.goalsB !== original.goalsB) {
-            const origWG = original.winner === 'A' ? original.goalsA : original.goalsB;
-            const origLG = original.winner === 'A' ? original.goalsB : original.goalsA;
-            const newWinner = edited.goalsA > edited.goalsB ? 'A' : 'B';
-            const newWG = newWinner === 'A' ? edited.goalsA : edited.goalsB;
-            const newLG = newWinner === 'A' ? edited.goalsB : edited.goalsA;
-            changes.push(`Score: ${origWG}:${origLG} → ${newWG}:${newLG}`);
-        } else {
-            const editedWinner = edited.goalsA > edited.goalsB ? 'A' : (edited.goalsA < edited.goalsB ? 'B' : null);
-            if (editedWinner && editedWinner !== original.winner) {
-                const winTeam = editedWinner === 'A' ? 'Red' : 'Blue';
-                changes.push(`Winner: ${original.winner === 'A' ? 'Red' : 'Blue'} → ${winTeam}`);
-            }
+            changes.push(`Score: ${original.goalsA}:${original.goalsB} → ${edited.goalsA}:${edited.goalsB}`);
         }
         if (edited.ranked !== (original.ranked ?? true)) {
             changes.push(`Ranked: ${original.ranked ?? true ? 'Yes' : 'No'} → ${edited.ranked ? 'Yes' : 'No'}`);
         }
 
+        // Goal log warning
+        const hasGoalLog = Array.isArray(original.goalLog) && original.goalLog.length > 0;
+        const scoreChanged = edited.goalsA !== original.goalsA || edited.goalsB !== original.goalsB;
+        if (hasGoalLog && scoreChanged) {
+            const isJustSwapped = edited.goalsA === original.goalsB && edited.goalsB === original.goalsA;
+            if (isJustSwapped) {
+                changes.push('⚠ Goal log: teams will be swapped to match');
+            } else {
+                changes.push('⚠ Goal log will be discarded (score changed)');
+            }
+        }
+
         if (changes.length === 0) {
             container.innerHTML = '<span class="edit-modal-no-changes">No changes</span>';
         } else {
-            container.innerHTML = changes.map(c => `<div class="edit-modal-change-item">• ${escapeHtml(c)}</div>`).join('');
+            container.innerHTML = changes.map(c => {
+                const isWarning = c.startsWith('⚠');
+                return `<div class="edit-modal-change-item${isWarning ? ' goal-log-warning' : ''}">• ${escapeHtml(c)}</div>`;
+            }).join('');
         }
     }
 
@@ -153,6 +157,10 @@ export function openEditModal(match) {
     originalRef.innerHTML = `<span class="edit-modal-original-label">Original:</span> ${winnerNames} ${wGoals}:${lGoals} ${loserNames}`;
     scrollBody.appendChild(originalRef);
 
+    // --- Teams row (side by side) ---
+    const teamsRow = document.createElement('div');
+    teamsRow.className = 'edit-modal-teams-row';
+
     // --- Team A (Red) ---
     const teamASection = document.createElement('div');
     teamASection.className = 'edit-modal-team edit-modal-team-red';
@@ -169,22 +177,7 @@ export function openEditModal(match) {
         teamA2Select = buildPlayerSelect(match.teamA[1], 'Red offense', 'edit-red');
         teamASection.appendChild(teamA2Select);
     }
-    scrollBody.appendChild(teamASection);
-
-    // --- Score ---
-    const scoreSection = document.createElement('div');
-    scoreSection.className = 'edit-modal-score';
-
-    const goalsASelect = buildGoalsSelect(match.goalsA, 'edit-red');
-    const goalsBSelect = buildGoalsSelect(match.goalsB, 'edit-blue');
-    const scoreSeparator = document.createElement('span');
-    scoreSeparator.className = 'edit-modal-score-sep';
-    scoreSeparator.textContent = ':';
-
-    scoreSection.appendChild(goalsASelect);
-    scoreSection.appendChild(scoreSeparator);
-    scoreSection.appendChild(goalsBSelect);
-    scrollBody.appendChild(scoreSection);
+    teamsRow.appendChild(teamASection);
 
     // --- Team B (Blue) ---
     const teamBSection = document.createElement('div');
@@ -202,7 +195,23 @@ export function openEditModal(match) {
         teamB2Select = buildPlayerSelect(match.teamB[1], 'Blue offense', 'edit-blue');
         teamBSection.appendChild(teamB2Select);
     }
-    scrollBody.appendChild(teamBSection);
+    teamsRow.appendChild(teamBSection);
+    scrollBody.appendChild(teamsRow);
+
+    // --- Score (centered below teams) ---
+    const scoreSection = document.createElement('div');
+    scoreSection.className = 'edit-modal-score';
+
+    const goalsASelect = buildGoalsSelect(match.goalsA, 'edit-red');
+    const goalsBSelect = buildGoalsSelect(match.goalsB, 'edit-blue');
+    const scoreSeparator = document.createElement('span');
+    scoreSeparator.className = 'edit-modal-score-sep';
+    scoreSeparator.textContent = ':';
+
+    scoreSection.appendChild(goalsASelect);
+    scoreSection.appendChild(scoreSeparator);
+    scoreSection.appendChild(goalsBSelect);
+    scrollBody.appendChild(scoreSection);
 
     // --- Ranked checkbox ---
     const rankedRow = document.createElement('div');
@@ -257,6 +266,18 @@ export function openEditModal(match) {
     quickActions.appendChild(swapWinnerBtn);
 
     scrollBody.appendChild(quickActions);
+
+    // --- Delete (soft) button ---
+    const deleteRow = document.createElement('div');
+    deleteRow.className = 'edit-modal-quick-actions';
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'confirm-btn confirm-btn-cancel';
+    deleteBtn.style.color = '#e07a7a';
+    deleteBtn.textContent = match.deleted ? '↩ Restore Match' : '🗑 Mark as Deleted';
+    deleteBtn.type = 'button';
+    deleteRow.appendChild(deleteBtn);
+    scrollBody.appendChild(deleteRow);
 
     // --- Change summary ---
     function getEditedValues() {
@@ -328,12 +349,58 @@ export function openEditModal(match) {
         if (e.target === backdrop) closeEditModal();
     });
 
+    // Delete button handler
+    deleteBtn.addEventListener('click', async () => {
+        const isDeleted = !!match.deleted;
+        const action = isDeleted ? 'restore' : 'mark as deleted';
+        const proceed = await showConfirm(
+            isDeleted
+                ? 'Restore this match? It will be included in rankings again.'
+                : 'Mark this match as deleted? It will be excluded from rankings but kept in history.',
+            { confirmLabel: isDeleted ? 'Restore' : 'Delete', cancelLabel: 'Cancel', type: 'warning' }
+        );
+        if (!proceed) return;
+
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = isDeleted ? 'Restoring…' : 'Deleting…';
+
+        const success = await softDeleteMatch(match, !isDeleted);
+        if (success) {
+            closeEditModal();
+        } else {
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = isDeleted ? '↩ Restore Match' : '🗑 Mark as Deleted';
+        }
+    });
+
     btnSave.addEventListener('click', async () => {
         const edited = getEditedValues();
+
+        // Determine goal log impact
+        const hasGoalLog = Array.isArray(match.goalLog) && match.goalLog.length > 0;
+        const scoreChanged = edited.goalsA !== match.goalsA || edited.goalsB !== match.goalsB;
+        let goalLogAction = null; // null = no change, 'swap' = swap teams, 'discard' = remove
+
+        if (hasGoalLog && scoreChanged) {
+            const isJustSwapped = edited.goalsA === match.goalsB && edited.goalsB === match.goalsA;
+            goalLogAction = isJustSwapped ? 'swap' : 'discard';
+        }
+
+        // Build confirmation message
+        const warnings = [];
         const isRanked = match.ranked ?? true;
         if (isRanked && edited.ranked) {
+            warnings.push('This will trigger Elo recalculation for all affected players.');
+        }
+        if (goalLogAction === 'discard') {
+            warnings.push('The goal log (live match timeline) will be permanently discarded because the score changed.');
+        } else if (goalLogAction === 'swap') {
+            warnings.push('The goal log teams will be swapped to match the new score.');
+        }
+
+        if (warnings.length > 0) {
             const proceed = await showConfirm(
-                'Editing this ranked match will trigger Elo recalculation for all affected players.\n\nContinue?',
+                warnings.join('\n\n') + '\n\nContinue?',
                 { confirmLabel: 'Save', cancelLabel: 'Go back', type: 'warning' }
             );
             if (!proceed) return;
@@ -342,7 +409,7 @@ export function openEditModal(match) {
         btnSave.disabled = true;
         btnSave.textContent = 'Saving…';
 
-        const success = await saveMatchEdit(match, edited);
+        const success = await saveMatchEdit(match, edited, goalLogAction);
         if (success) {
             closeEditModal();
         } else {

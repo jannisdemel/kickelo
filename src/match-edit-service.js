@@ -2,7 +2,7 @@
 // Service for editing submitted matches with validation and audit trail.
 
 import { db, doc, updateDoc } from './firebase-service.js';
-import { serverTimestamp } from 'firebase/firestore';
+import { serverTimestamp, deleteField } from 'firebase/firestore';
 import { MATCH_EDIT_WINDOW_MS, MAX_EDITABLE_MATCHES, MAX_GOALS } from './constants.js';
 import { allMatches } from './match-data-service.js';
 import { showToast } from './toast.js';
@@ -113,9 +113,10 @@ export function validateMatchEdit(data) {
  * Save an edited match to Firestore.
  * @param {object} originalMatch - The full original match object.
  * @param {object} updates - The changed fields: { teamA?, teamB?, goalsA?, goalsB?, positionsConfirmed?, ranked? }
+ * @param {string|null} goalLogAction - null (no change), 'swap' (swap teams in goal log), 'discard' (remove goal log)
  * @returns {Promise<boolean>} true on success
  */
-export async function saveMatchEdit(originalMatch, updates) {
+export async function saveMatchEdit(originalMatch, updates, goalLogAction = null) {
     // Derive winner from goals
     const goalsA = updates.goalsA ?? originalMatch.goalsA;
     const goalsB = updates.goalsB ?? originalMatch.goalsB;
@@ -148,6 +149,18 @@ export async function saveMatchEdit(originalMatch, updates) {
 
     const matchDocRef = doc(db, 'matches', originalMatch.id);
 
+    // Handle goal log changes
+    const goalLogUpdate = {};
+    if (goalLogAction === 'swap' && Array.isArray(originalMatch.goalLog)) {
+        goalLogUpdate.goalLog = originalMatch.goalLog.map(entry => ({
+            ...entry,
+            team: entry.team === 'red' ? 'blue' : entry.team === 'blue' ? 'red' : entry.team,
+        }));
+    } else if (goalLogAction === 'discard') {
+        goalLogUpdate.goalLog = [];
+        goalLogUpdate.matchDuration = deleteField();
+    }
+
     try {
         await updateDoc(matchDocRef, {
             teamA,
@@ -159,11 +172,51 @@ export async function saveMatchEdit(originalMatch, updates) {
             ranked: finalUpdates.ranked ?? originalMatch.ranked ?? true,
             editedAt: serverTimestamp(),
             editHistory: [...existingHistory, historyEntry],
+            ...goalLogUpdate,
         });
         showToast('Match updated! Stats will refresh automatically.', 'success');
         return true;
     } catch (error) {
         console.error('Error updating match:', error);
+        showToast('Failed to update match. Check the console for details.', 'error');
+        return false;
+    }
+}
+
+/**
+ * Soft-delete (or restore) a match.
+ * Sets deleted=true and ranked=false, or restores them.
+ * @param {object} match - The match object.
+ * @param {boolean} markDeleted - true to delete, false to restore.
+ * @returns {Promise<boolean>} true on success.
+ */
+export async function softDeleteMatch(match, markDeleted) {
+    const matchDocRef = doc(db, 'matches', match.id);
+
+    const existingHistory = Array.isArray(match.editHistory) ? match.editHistory : [];
+    const historyEntry = {
+        editedAt: Date.now(),
+        changedFields: markDeleted ? ['deleted', 'ranked'] : ['deleted', 'ranked'],
+        before: { deleted: !!match.deleted, ranked: match.ranked ?? true },
+        after: { deleted: markDeleted, ranked: markDeleted ? false : (match._rankedBeforeDelete ?? true) },
+    };
+
+    try {
+        const updateData = {
+            deleted: markDeleted,
+            ranked: markDeleted ? false : (match._rankedBeforeDelete ?? true),
+            editedAt: serverTimestamp(),
+            editHistory: [...existingHistory, historyEntry],
+        };
+        // Store the original ranked status so we can restore it
+        if (markDeleted) {
+            updateData._rankedBeforeDelete = match.ranked ?? true;
+        }
+        await updateDoc(matchDocRef, updateData);
+        showToast(markDeleted ? 'Match marked as deleted.' : 'Match restored.', 'success');
+        return true;
+    } catch (error) {
+        console.error('Error soft-deleting match:', error);
         showToast('Failed to update match. Check the console for details.', 'error');
         return false;
     }

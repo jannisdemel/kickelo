@@ -130,6 +130,11 @@ export function computeAllPlayerStats(matches, options = {}) {
             console.warn(`Skipping invalid match with id ${match.id}: missing teamA or teamB array`);
             continue;
         }
+
+        // Skip soft-deleted matches
+        if (match.deleted) {
+            continue;
+        }
         
         const dayKey = getDayKey(match.timestamp);
         const matchIsToday = match.timestamp >= startOfDayTimestamp;

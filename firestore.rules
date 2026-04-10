@@ -79,7 +79,7 @@ service cloud.firestore {
           // Case 2: Match editing — core fields + audit trail
           (
             request.resource.data.diff(resource.data).changedKeys()
-              .hasOnly(['teamA', 'teamB', 'winner', 'goalsA', 'goalsB', 'positionsConfirmed', 'ranked', 'editedAt', 'editHistory'])
+              .hasOnly(['teamA', 'teamB', 'winner', 'goalsA', 'goalsB', 'positionsConfirmed', 'ranked', 'editedAt', 'editHistory', 'goalLog', 'matchDuration', 'deleted', '_rankedBeforeDelete'])
             && request.resource.data.teamA is list
             && request.resource.data.teamA.size() <= 2
             && request.resource.data.teamB is list
