@@ -30,7 +30,7 @@ function loadEloChartPrefs() {
         const raw = localStorage.getItem(ELO_CHART_PREFS_KEY);
         if (raw) return JSON.parse(raw);
     } catch { /* ignore */ }
-    return { volatility: false, trends: false, range: '20d', mode: 'candle' };
+    return { volatility: false, trends: false, range: '20d', mode: 'candle', smoothed: false };
 }
 function saveEloChartPrefs(prefs) {
     try { localStorage.setItem(ELO_CHART_PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
@@ -380,6 +380,7 @@ template.innerHTML = `
                 <div class="stats-section">
                     <h3>ELO Trajectory</h3>
                     <div class="elo-chart-controls">
+                        <label><input type="checkbox" id="toggleSmoothed" /> Smoothed</label>
                         <label><input type="checkbox" id="toggleBollinger" checked /> Volatility</label>
                         <label><input type="checkbox" id="toggleTrends" checked /> Trends</label>
                         <span class="spacer"></span>
@@ -559,10 +560,12 @@ class PlayerStatsComponent extends HTMLElement {
         // Apply saved prefs to controls
         const bollingerToggle = this.shadowRoot.getElementById('toggleBollinger');
         const trendsToggle = this.shadowRoot.getElementById('toggleTrends');
+        const smoothedToggle = this.shadowRoot.getElementById('toggleSmoothed');
         const rangeSelect = this.shadowRoot.getElementById('eloRange');
         const modeSelect = this.shadowRoot.getElementById('eloMode');
         if (bollingerToggle) bollingerToggle.checked = prefs.volatility;
         if (trendsToggle) trendsToggle.checked = prefs.trends;
+        if (smoothedToggle) smoothedToggle.checked = prefs.smoothed ?? false;
         if (rangeSelect) rangeSelect.value = prefs.range;
         if (modeSelect) modeSelect.value = prefs.mode || 'line';
 
@@ -693,6 +696,7 @@ class PlayerStatsComponent extends HTMLElement {
 
         const showBoll = prefs.volatility;
         const showTrends = prefs.trends;
+        const showSmoothed = prefs.smoothed ?? false;
         const { min: xMin, max: xMax } = this._getVisibleRange(prefs.range);
 
         // Golden-goal markers: point array with NaN everywhere except golden-goal indices
@@ -719,12 +723,14 @@ class PlayerStatsComponent extends HTMLElement {
             // 2: Raw ELO
             {
                 label: 'ELO', data: eloValues,
-                borderColor: 'rgba(108, 171, 194, 0.45)', backgroundColor: 'rgba(108, 171, 194, 0.45)',
-                pointRadius: 0, borderWidth: 1.5, tension: 0, pointHitRadius: 20, order: 4,
+                borderColor: showSmoothed ? 'rgba(108, 171, 194, 0.45)' : '#6cabc2',
+                backgroundColor: showSmoothed ? 'rgba(108, 171, 194, 0.45)' : '#6cabc2',
+                pointRadius: 0, borderWidth: showSmoothed ? 1.5 : 2.8, tension: 0, pointHitRadius: 20, order: 4,
             },
-            // 3: EMA
+            // 3: EMA (smoothed)
             {
-                label: 'Moving Avg', data: ema,
+                label: 'Moving Avg',
+                data: showSmoothed ? ema : ema.map(() => null),
                 borderColor: '#6cabc2', backgroundColor: '#6cabc2',
                 pointRadius: 0, borderWidth: 2.8, tension: 0.35,
                 pointHitRadius: 0, spanGaps: true, order: 3,
@@ -765,6 +771,7 @@ class PlayerStatsComponent extends HTMLElement {
             type: 'line',
             data: { labels, datasets },
             options: {
+                animation: false,
                 responsive: true, maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 scales: {
@@ -818,6 +825,7 @@ class PlayerStatsComponent extends HTMLElement {
 
         const showBoll = prefs.volatility;
         const showTrends = prefs.trends;
+        const showSmoothed = prefs.smoothed ?? false;
         const { min: xMin, max: xMax } = this._getVisibleCandleRange(prefs.range);
 
         // Compute y-axis range from visible candles (+ Bollinger if active)
@@ -899,7 +907,7 @@ class PlayerStatsComponent extends HTMLElement {
             // 3: EMA line
             {
                 label: 'Moving Avg',
-                data: candleEma,
+                data: showSmoothed ? candleEma : candleEma.map(() => null),
                 borderColor: '#6cabc2', backgroundColor: '#6cabc2',
                 pointRadius: 0, borderWidth: 2.5, tension: 0.3,
                 pointHitRadius: 0, spanGaps: true, order: 3, type: 'line',
@@ -929,6 +937,7 @@ class PlayerStatsComponent extends HTMLElement {
         const chart = new Chart(canvas.getContext('2d'), {
             data: { labels, datasets },
             options: {
+                animation: false,
                 responsive: true, maintainAspectRatio: false,
                 interaction: { mode: 'index', intersect: false },
                 scales: {
@@ -993,6 +1002,7 @@ class PlayerStatsComponent extends HTMLElement {
 
         const bollingerToggle = this.shadowRoot.getElementById('toggleBollinger');
         const trendsToggle = this.shadowRoot.getElementById('toggleTrends');
+        const smoothedToggle = this.shadowRoot.getElementById('toggleSmoothed');
         const rangeSelect = this.shadowRoot.getElementById('eloRange');
         const modeSelect = this.shadowRoot.getElementById('eloMode');
         const chart = this._eloChartRef;
@@ -1002,6 +1012,7 @@ class PlayerStatsComponent extends HTMLElement {
             const p = {
                 volatility: bollingerToggle?.checked ?? true,
                 trends: trendsToggle?.checked ?? true,
+                smoothed: smoothedToggle?.checked ?? false,
                 range: rangeSelect?.value ?? 'season',
                 mode: modeSelect?.value ?? 'line',
             };
@@ -1050,6 +1061,8 @@ class PlayerStatsComponent extends HTMLElement {
         // Range and mode changes require a full rebuild to adjust x-axis
         if (rangeSelect) rangeSelect.addEventListener('change', rebuildChart, sig);
         if (modeSelect) modeSelect.addEventListener('change', rebuildChart, sig);
+        // Smoothed toggle: rebuild needed (changes raw line thickness)
+        if (smoothedToggle) smoothedToggle.addEventListener('change', rebuildChart, sig);
     }
 
     renderWinLossTable(ratios) {
