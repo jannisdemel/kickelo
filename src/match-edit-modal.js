@@ -234,7 +234,7 @@ export function openEditModal(match) {
     swapTeamsBtn.textContent = '⇆ Swap Teams';
     swapTeamsBtn.type = 'button';
     swapTeamsBtn.addEventListener('click', () => {
-        // Swap player selections
+        // Swap player selections only (not the score)
         const tmpA1 = teamA1Select.value;
         const tmpA2 = teamA2Select?.value;
         const tmpB1 = teamB1Select.value;
@@ -245,10 +245,6 @@ export function openEditModal(match) {
             teamA2Select.value = tmpB2;
             teamB2Select.value = tmpA2;
         }
-        // Swap goals
-        const tmpGA = goalsASelect.value;
-        goalsASelect.value = goalsBSelect.value;
-        goalsBSelect.value = tmpGA;
         changeSummary.update();
     });
     quickActions.appendChild(swapTeamsBtn);
@@ -274,7 +270,7 @@ export function openEditModal(match) {
     const deleteBtn = document.createElement('button');
     deleteBtn.className = 'confirm-btn confirm-btn-cancel';
     deleteBtn.style.color = '#e07a7a';
-    deleteBtn.textContent = match.deleted ? '↩ Restore Match' : '🗑 Mark as Deleted';
+    deleteBtn.textContent = match.deleted ? '↩ Restore Match' : '🗑 Delete Match';
     deleteBtn.type = 'button';
     deleteRow.appendChild(deleteBtn);
     scrollBody.appendChild(deleteRow);
@@ -369,7 +365,7 @@ export function openEditModal(match) {
             closeEditModal();
         } else {
             deleteBtn.disabled = false;
-            deleteBtn.textContent = isDeleted ? '↩ Restore Match' : '🗑 Mark as Deleted';
+            deleteBtn.textContent = isDeleted ? '↩ Restore Match' : '🗑 Delete Match';
         }
     });
 

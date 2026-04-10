@@ -39,7 +39,9 @@ function createMatchListItem(match) {
         ? '<span class="match-edited-tag">(edited)</span>'
         : '';
 
-    li.innerHTML = `<span class="match-result-text">${winner} ${winnerGoals}:${loserGoals} ${loser}</span> <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>${deletedTag}${editedTag}`;
+    li.innerHTML = `<span class="match-result-text" style="flex: 1;">${winner} ${winnerGoals}:${loserGoals} ${loser} <span style="font-size: 0.9em; color: gray;">${deltaLabel}</span>${deletedTag}${editedTag}</span>`;
+    li.style.display = 'flex';
+    li.style.alignItems = 'center';
     if (match.deleted) {
         li.classList.add('match-deleted');
     }
